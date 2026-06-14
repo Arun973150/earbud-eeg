@@ -1,0 +1,21 @@
+EEG Analysis Report for Patient a
+Analysis Date and Time: 2026-06-14 15:20:09
+
+Recording Date and Time: 2026-06-14 15:20:06
+Recording Duration: 5 seconds
+
+Frequency Band Powers:
+Delta: 9.422247
+Theta: 11.241067
+Alpha: 17.908179
+Beta: 0.548913
+Gamma: 0.091227
+
+Theta/Alpha ratio: 0.63
+Spike count: 0
+Spike rate: 0.00 spikes/second
+
+Basic Interpretation:
+
+Note: This is a simplified analysis and should not be used for clinical diagnosis.
+Please consult with a qualified medical professional for proper interpretation.

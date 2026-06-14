@@ -1,0 +1,389 @@
+import { useEffect, useRef } from 'react'
+import Nav from './components/Nav.jsx'
+import ParticleBrain from './components/ParticleBrain.jsx'
+import { STATS, OBJECTIVES, PIPELINE, STACK, METRICS, TEAM, GUIDE, FUTURE } from './data.js'
+
+/* Reveal-on-scroll: adds .in to .reveal elements as they enter the viewport */
+function useReveal() {
+  useEffect(() => {
+    const els = document.querySelectorAll('.reveal')
+    if (!('IntersectionObserver' in window)) {
+      els.forEach((el) => el.classList.add('in'))
+      return
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add('in')
+            io.unobserve(e.target)
+          }
+        })
+      },
+      { threshold: 0.12 },
+    )
+    els.forEach((el) => io.observe(el))
+    return () => io.disconnect()
+  }, [])
+}
+
+function Eyebrow({ children }) {
+  return (
+    <p className="eyebrow">
+      <span className="tick">◆ </span>
+      {children}
+    </p>
+  )
+}
+
+function Hero() {
+  return (
+    <header className="hero" id="top">
+      <div className="hero__brain">
+        <ParticleBrain />
+      </div>
+      <div className="hero__veil" />
+
+      <span className="hero__edge hero__edge--left">Out of the lab</span>
+      <span className="hero__edge hero__edge--right">Into everyday life</span>
+
+      <div className="hero__content">
+        <Eyebrow>MSRIT · CSP67 Mini Project · 2026</Eyebrow>
+        <h1 className="hero__display">
+          Brain activity,
+          <br />
+          made <span className="accent">wearable</span>
+        </h1>
+        <p className="hero__sub">
+          An earbud-based EEG monitoring system — dry in-ear electrodes and a hybrid
+          CNN-GRU model that detect seizures in real time, no gel, no lab, no wires.
+        </p>
+        <div className="hero__actions">
+          <a className="pill" href="#overview">Explore the system</a>
+          <a className="pill pill--accent" href="#results">See the results</a>
+        </div>
+      </div>
+
+      <a className="hero__scroll" href="#overview" aria-label="Scroll to overview">
+        <span>Scroll</span>
+        <span className="line" />
+      </a>
+    </header>
+  )
+}
+
+function Stats() {
+  return (
+    <section className="stats">
+      <div className="container">
+        <div className="stats__grid reveal">
+          {STATS.map((s) => (
+            <div className="stat" key={s.label}>
+              <div className="stat__value">
+                {s.value}
+                {s.unit && <span className="unit"> {s.unit}</span>}
+              </div>
+              <div className="stat__label">{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Overview() {
+  return (
+    <section className="section" id="overview">
+      <div className="container">
+        <div className="section__head reveal">
+          <Eyebrow>The idea</Eyebrow>
+          <h2 className="statement">EEG that lives in your ears, not the hospital</h2>
+          <p className="lead">
+            Conventional EEG is bulky, gel-bound and stuck in clinics. We embed dry
+            electrodes inside a 3D-printed earbud to capture temporal-lobe activity
+            continuously and comfortably — then process it in real time and flag
+            seizure-like patterns with deep learning.
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Problem() {
+  const rows = [
+    { k: 'Bulky & tethered', v: 'Scalp EEG needs many wet electrodes, conductive gel and trained technicians.' },
+    { k: 'Clinic-bound', v: 'Wired setups confine monitoring to hospitals and labs — not daily life.' },
+    { k: 'Fragile signals', v: 'Ear-EEG is low-amplitude and sensitive to motion, muscle and powerline noise.' },
+    { k: 'No full pipeline', v: 'Most wearables only acquire — they lack integrated real-time intelligent analysis.' },
+  ]
+  return (
+    <section className="section" id="problem">
+      <div className="container">
+        <div className="split">
+          <div className="section__head reveal" style={{ marginBottom: 0 }}>
+            <Eyebrow>The problem</Eyebrow>
+            <h2 className="statement">Why conventional EEG can't follow you home</h2>
+            <p className="lead">
+              The research gap is clear: a low-cost, comfortable, wearable system that
+              integrates dry electrodes, robust preprocessing and intelligent analysis for
+              continuous real-world monitoring.
+            </p>
+          </div>
+          <div className="contrast reveal">
+            {rows.map((r) => (
+              <div className="contrast__row" key={r.k}>
+                <div className="k">{r.k}</div>
+                <div className="v">{r.v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Objectives() {
+  return (
+    <section className="section" id="objectives">
+      <div className="container">
+        <div className="section__head reveal">
+          <Eyebrow>Objectives</Eyebrow>
+          <h2 className="statement">What the system sets out to do</h2>
+        </div>
+        <div className="objectives reveal">
+          {OBJECTIVES.map((o, i) => (
+            <div className="objective" key={i}>
+              <span className="objective__num">{String(i + 1).padStart(2, '0')}</span>
+              <span className="objective__text">{o}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function System() {
+  return (
+    <section className="section" id="system">
+      <div className="container">
+        <div className="section__head reveal">
+          <Eyebrow>How it works</Eyebrow>
+          <h2 className="statement">From ear canal to seizure alert</h2>
+          <p className="lead">
+            A modular, event-driven pipeline: every stage hands off through a well-defined
+            interface, so the signal flows continuously from acquisition to alert.
+          </p>
+        </div>
+        <div className="pipeline">
+          {PIPELINE.map((step, i) => (
+            <div className="pipe-step reveal" key={step.title}>
+              <span className="pipe-step__num">{String(i + 1).padStart(2, '0')}</span>
+              <div>
+                <div className="pipe-step__title">{step.title}</div>
+                <div className="pipe-step__desc">{step.desc}</div>
+              </div>
+              <span className="pipe-step__meta">{step.meta}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Stack() {
+  return (
+    <section className="section" id="stack">
+      <div className="container">
+        <div className="section__head reveal">
+          <Eyebrow>Built with</Eyebrow>
+          <h2 className="statement">Hardware, signal processing & intelligence</h2>
+        </div>
+        <div className="reveal">
+          {STACK.map((g, gi) => (
+            <div className="stack-group" key={g.title}>
+              <div className="stack-group__head">
+                <span className="stack-group__idx">{String(gi + 1).padStart(2, '0')}</span>
+                <span className="stack-group__title">{g.title}</span>
+              </div>
+              <div className="stack-tags">
+                {g.items.map((it) => (
+                  <span className="tag" key={it}>{it}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Results() {
+  return (
+    <section className="section" id="results">
+      <div className="container">
+        <div className="section__head reveal">
+          <Eyebrow>Results</Eyebrow>
+          <h2 className="statement">The CNN-GRU model leads across every metric</h2>
+          <p className="lead">
+            Evaluated on temporal-lobe EEG, the hybrid model beats SVM, CNN-only and
+            LSTM-only baselines — the sensitivity gain matters most, since it reduces
+            missed seizures.
+          </p>
+        </div>
+
+        <div className="results-grid">
+          <div className="reveal">
+            <table className="metrics">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Sensitivity</th>
+                  <th>Specificity</th>
+                  <th>F1</th>
+                  <th>AUC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {METRICS.map((m) => (
+                  <tr key={m.model} className={m.proposed ? 'is-proposed' : ''}>
+                    <td>{m.model}</td>
+                    <td>{m.sens}%</td>
+                    <td>{m.spec}%</td>
+                    <td>{m.f1}</td>
+                    <td>{m.auc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="reveal">
+            <p className="eyebrow" style={{ marginBottom: 'var(--sp-16)' }}>Confusion matrix · test set</p>
+            <div className="confusion">
+              <span className="axis" />
+              <span className="axis">Pred. seizure</span>
+              <span className="axis">Pred. normal</span>
+
+              <span className="axis" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>Seizure</span>
+              <div className="cell hit"><div className="big">480</div><div className="pct">97.6%</div></div>
+              <div className="cell"><div className="big">12</div><div className="pct">2.4%</div></div>
+
+              <span className="axis" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>Normal</span>
+              <div className="cell"><div className="big">18</div><div className="pct">3.4%</div></div>
+              <div className="cell hit"><div className="big">510</div><div className="pct">96.6%</div></div>
+            </div>
+            <p className="lead" style={{ marginTop: 'var(--sp-20)', fontSize: 'var(--text-body-sm)' }}>
+              ~96% accuracy with minimal false positives and negatives, at a ~380 ms
+              end-to-end latency suitable for continuous real-time monitoring.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Team() {
+  return (
+    <section className="section" id="team">
+      <div className="container">
+        <div className="section__head reveal">
+          <Eyebrow>The team</Eyebrow>
+          <h2 className="statement">Four engineers, one wearable</h2>
+        </div>
+        <div className="team-grid reveal">
+          {TEAM.map((m) => (
+            <div className="member" key={m.usn}>
+              <div className="member__top">
+                <span className="member__name">{m.name}</span>
+                <span className="member__usn">{m.usn}</span>
+              </div>
+              <div className="member__role">{m.role}</div>
+              <p className="member__resp">{m.resp}</p>
+            </div>
+          ))}
+        </div>
+        <div className="guide reveal">
+          <span className="label">Under the guidance of</span>
+          <span className="who">{GUIDE.name} — {GUIDE.role}</span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Future() {
+  return (
+    <section className="section" id="future">
+      <div className="container">
+        <div className="section__head reveal">
+          <Eyebrow>What's next</Eyebrow>
+          <h2 className="statement">Where the earbud goes from here</h2>
+        </div>
+        <ul className="future reveal">
+          {FUTURE.map((f) => (
+            <li key={f}>
+              <span className="dot">◆</span>
+              <span>{f}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+function Footer() {
+  return (
+    <footer className="footer">
+      <div className="container">
+        <div className="footer__top">
+          <div className="footer__inst">
+            <div className="name">Earbud-based EEG Monitoring System</div>
+            <p className="sub">
+              Department of Computer Science & Engineering, M. S. Ramaiah Institute of
+              Technology (Autonomous, affiliated to VTU), Bangalore — 560054.
+            </p>
+          </div>
+          <div className="footer__meta">
+            <div>CSP67 · Mini Project</div>
+            <div>Term · March–June 2025</div>
+            <div>Report · 2026</div>
+          </div>
+        </div>
+        <div className="footer__bottom">
+          <span>Nishchal KJ · Dhruv Gupta · Riya Acharya · Saksham Yadav</span>
+          <span>Guide · Pradeep Kumar D</span>
+        </div>
+      </div>
+    </footer>
+  )
+}
+
+export default function App() {
+  useReveal()
+  return (
+    <>
+      <Nav />
+      <main>
+        <Hero />
+        <Stats />
+        <Overview />
+        <Problem />
+        <Objectives />
+        <System />
+        <Stack />
+        <Results />
+        <Team />
+        <Future />
+      </main>
+      <Footer />
+    </>
+  )
+}

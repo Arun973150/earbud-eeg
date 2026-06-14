@@ -1,0 +1,21 @@
+{
+  "name": "earbud-eeg-site",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Marketing/showcase site for the Earbud-based EEG Monitoring System (MSRIT CSP67 Mini Project).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "vite build && cd eeg-web-app && node app.js"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
+  }
+}

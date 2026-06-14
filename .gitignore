@@ -1,0 +1,22 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+
+# secrets — never publish
+.env
+**/.env
+*.env
+
+# studied third-party site clone (ciridae.com) — do not publish
+reference/
+
+# uploads
+eeg-web-app/uploads/
+
+# logs & local tooling
+*.log
+.claude/
