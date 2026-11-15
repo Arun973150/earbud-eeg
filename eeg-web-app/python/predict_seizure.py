@@ -1,359 +1,229 @@
 import os
 import sys
+import json
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend for server environment
 import matplotlib.pyplot as plt
 from scipy.signal import welch
-from scipy.stats import skew, kurtosis
 import joblib
 import mne
-from sklearn.preprocessing import StandardScaler
-import tensorflow as tf
-from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, Dense, Dropout, GRU, BatchNormalization, LeakyReLU
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.models import load_model
+
+mne.set_log_level("WARNING")
+
+DEFAULT_MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "EEG_Data_new")
+WINDOW_SECONDS = 4
+WINDOW_OVERLAP = 0.5
+MODEL_INPUT_SAMPLES = 125
+
+# A seizure lasts tens of seconds or more, so only sustained runs of high-probability
+# windows count as an event; single-window spikes are reported but not flagged.
+EVENT_THRESHOLD = 0.85
+EVENT_MIN_WINDOWS = 3
+EVENT_MERGE_GAP = 2
+RULE_TEXT = (f"Flagged only when {EVENT_MIN_WINDOWS} or more consecutive 4-second windows are above "
+             f"{int(EVENT_THRESHOLD * 100)}%; single-window spikes are counted but not flagged.")
+
+
+def find_events(probabilities, step_s=WINDOW_SECONDS * (1 - WINDOW_OVERLAP), window_s=WINDOW_SECONDS):
+    """Runs of >= EVENT_MIN_WINDOWS windows above EVENT_THRESHOLD, merging runs separated by
+    <= EVENT_MERGE_GAP lower windows. Returns (events, isolated_spike_count)."""
+    runs, start = [], None
+    for i, p in enumerate(list(probabilities) + [0.0]):
+        if p > EVENT_THRESHOLD and start is None:
+            start = i
+        elif p <= EVENT_THRESHOLD and start is not None:
+            runs.append([start, i - 1])
+            start = None
+    sustained = [r for r in runs if r[1] - r[0] + 1 >= EVENT_MIN_WINDOWS]
+    isolated = sum(b - a + 1 for a, b in runs if b - a + 1 < EVENT_MIN_WINDOWS)
+    merged = []
+    for run in sustained:
+        if merged and run[0] - merged[-1][1] - 1 <= EVENT_MERGE_GAP:
+            merged[-1][1] = run[1]
+        else:
+            merged.append(list(run))
+    events = [{
+        "start_s": round(a * step_s, 1),
+        "end_s": round(b * step_s + window_s, 1),
+        "peak": round(float(max(probabilities[a:b + 1])), 4),
+        "windows": b - a + 1,
+    } for a, b in merged]
+    return events, isolated
+
+_EXCLUDED = ("ecg", "ekg", "emg", "eog", "resp", "spo2", "pulse", "status", "annotation", "event")
+_TEMPORAL = ("t3", "t4", "t5", "t6", "t7", "t8", "temporal")
+
+
+def pick_channel(names):
+    """Prefer a temporal-lobe channel, then any EEG channel; never ECG/EMG/EOG."""
+    usable = [c for c in names if not any(x in c.lower() for x in _EXCLUDED)]
+    for c in usable:
+        if any(t in c.lower() for t in _TEMPORAL):
+            return c
+    for c in usable:
+        if "eeg" in c.lower():
+            return c
+    return usable[0] if usable else None
+
 
 class SeizurePredictor:
-    def __init__(self, output_dir="EEG_Data_new"):
-        self.output_dir = output_dir
-        self.model = None
-        self.scaler = None
-       
-        model_path = os.path.join(output_dir, 'cnn_gru_seizure_model.h5')
-        scaler_path = os.path.join(output_dir, 'feature_scaler.pkl')
-        
-        if os.path.exists(model_path) and os.path.exists(scaler_path):
-            print(f"Loading existing CNN-GRU model from {model_path}")
-            try:
-                self.model = load_model(model_path)
-                self.scaler = joblib.load(scaler_path)
-                print("Model and scaler loaded successfully")
-            except Exception as e:
-                print(f"Error loading model: {e}")
-                self.model = None
-                self.scaler = None
-        else:
-            print("No existing CNN-GRU model found. Will create a new one.")
-            self.scaler = StandardScaler()
-    
-    def extract_temporal_lobe_data(self, file_path):
-        try:
-            print(f"Reading EDF file: {file_path}")
-            raw = mne.io.read_raw_edf(file_path, preload=True)
-            print(f"Available channels: {raw.ch_names}")
-            
-            # Define channel selection patterns
-            temporal_channel_patterns = ['T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T3-', 'T4-', 'T5-', 'T6-', 'T7-', 'T8-', 'temp', 'temporal']
-            temporal_channels = [ch for pattern in temporal_channel_patterns for ch in raw.ch_names if pattern.lower() in ch.lower()]
-            temporal_channels = list(dict.fromkeys(temporal_channels))
-            
-            # Fallback to brain signal channels if no temporal channels found
-            if not temporal_channels:
-                brain_signal_patterns = ['eeg', 'ekg', 'ecg', 'emg', 'channel', 'ch', 'signal', 'fp', 'f', 'c', 'p', 'o']
-                temporal_channels = [ch for ch in raw.ch_names if any(pattern in ch.lower() for pattern in brain_signal_patterns)]
-            
-            # Use first available channel as last resort
-            if not temporal_channels and len(raw.ch_names) > 0:
-                temporal_channels = [raw.ch_names[0]]
-            
-            if temporal_channels:
-                channel = temporal_channels[0]
-                print(f"Using channel: {channel}")
-                signals = raw.get_data(picks=channel)
-                
-                # Check for NaN or infinite values
-                if np.isnan(signals).any() or np.isinf(signals).any():
-                    print("Warning: Signal contains NaN or infinite values. Replacing with zeros.")
-                    signals = np.nan_to_num(signals)
-                
-                fs = raw.info['sfreq']
-                return signals, fs
-            else:
-                print(f"No suitable channels found in {file_path}")
-                return None, None
-        except Exception as e:
-            print(f"Error reading {file_path}: {e}")
-            return None, None
-    
-    def extract_features(self, signals, fs, window_size=4, overlap=0.5):
-        if signals is None or fs is None:
-            return None, None
-        
-        print(f"Extracting features from signal with shape {signals.shape} and sampling rate {fs} Hz")
-        window_length = int(window_size * fs)
-        step = int(window_length * (1 - overlap))
-        
-        # Check if signal is long enough
-        if signals.shape[1] <= window_length:
-            print(f"Error: Signal length ({signals.shape[1]}) is shorter than window length ({window_length})")
-            return None, None
-        
-        sequences = []
-        labels = []
-        
-        for i in range(0, signals.shape[1] - window_length, step):
-            try:
-                window = signals[:, i:i+window_length]
-                
-                # Check for NaN or infinite values
-                if np.isnan(window).any() or np.isinf(window).any():
-                    window = np.nan_to_num(window)
-                
-                # Resample to 125 samples for CNN-GRU model
-                resampled_window = np.interp(
-                    np.linspace(0, 1, 125),
-                    np.linspace(0, 1, window.shape[1]),
-                    window[0]
-                )
-                
-                # Reshape for CNN-GRU: (time_steps, features)
-                sequence = resampled_window[:, np.newaxis]
-                sequences.append(sequence)
-                
-                # Calculate line length as proxy for abnormal activity
-                line_length = np.sum(np.abs(np.diff(window[0])))
-                labels.append(line_length)
-            except Exception as e:
-                print(f"Error processing window at position {i}: {e}")
-                continue
-        
-        if len(sequences) == 0:
-            print("No valid sequences were extracted")
-            return None, None
-        
-        X = np.array(sequences)
-        y = np.array(labels)
-        
-        # Remove any remaining NaN or inf values
-        if np.isnan(X).any() or np.isinf(X).any():
-            print("Warning: Features contain NaN or infinite values. Replacing with zeros.")
-            X = np.nan_to_num(X)
-        
-        if np.isnan(y).any() or np.isinf(y).any():
-            print("Warning: Labels contain NaN or infinite values. Replacing with zeros.")
-            y = np.nan_to_num(y)
-        
-        print(f"Extracted {len(X)} feature sequences")
-        return X, y
-    
-    def build_cnn_gru_model(self):
-        """Build CNN-GRU model architecture"""
-        tf.keras.backend.clear_session()
-        model = Sequential()
-        
-        # CNN layers for feature extraction
-        model.add(Conv1D(filters=16, kernel_size=3, strides=1, padding='same', input_shape=(125, 1)))
-        model.add(BatchNormalization())
-        model.add(LeakyReLU())
-        model.add(MaxPooling1D(pool_size=2, strides=2))
-        
-        model.add(Conv1D(filters=32, kernel_size=3, strides=1, padding='same'))
-        model.add(BatchNormalization())
-        model.add(LeakyReLU())
-        model.add(MaxPooling1D(pool_size=2, strides=2))
-        model.add(Dropout(0.3))
-        
-        # GRU layers for temporal sequence modeling
-        model.add(GRU(64, return_sequences=True))
-        model.add(GRU(32))
-        model.add(Dropout(0.3))
-        
-        # Dense layers for classification
-        model.add(Dense(32, activation='relu'))
-        model.add(Dropout(0.5))
-        model.add(Dense(1, activation='sigmoid'))
-        
-        model.compile(
-            optimizer='adam',
-            loss='binary_crossentropy',
-            metrics=['accuracy']
-        )
-        
-        return model
-    
-    def predict(self, edf_file):
-        file_name = os.path.basename(edf_file).split('.')[0]
-        output_img = os.path.join(self.output_dir, f"{file_name}_prediction.png")
-        
-        print(f"Starting prediction for file: {edf_file}")
-        signals, fs = self.extract_temporal_lobe_data(edf_file)
-        
-        if signals is None or fs is None:
-            print(f"Could not extract signal from {edf_file}")
-            return {
-                "file": edf_file,
-                "prediction": "ERROR",
-                "confidence": "0%",
-                "visualization": None
-            }
-        
-        X, y = self.extract_features(signals, fs)
-        
-        if X is None or len(X) == 0:
-            print(f"Could not extract features from {edf_file}")
-            return {
-                "file": edf_file,
-                "prediction": "ERROR",
-                "confidence": "0%",
-                "visualization": None
-            }
-        
-        # Create model if it doesn't exist
-        if self.model is None:
-            print("Creating a CNN-GRU model for demonstration purposes")
-            
-            # Create binary pseudo-labels based on line length
-            try:
-                threshold = np.percentile(y, 85)  # Top 15% are considered abnormal
-                y_binary = (y > threshold).astype(int)
-                
-                # Scale features
-                X_reshaped = X.reshape(-1, X.shape[-1])
-                X_scaled = self.scaler.fit_transform(X_reshaped)
-                X_processed = X_scaled.reshape(X.shape)
-                
-                # Build and train model
-                self.model = self.build_cnn_gru_model()
-                
-                # Simple training with early stopping
-                callbacks = [
-                    EarlyStopping(monitor='loss', patience=5, restore_best_weights=True)
-                ]
-                
-                print("Training CNN-GRU model...")
-                self.model.fit(
-                    X_processed, y_binary,
-                    epochs=20,
-                    batch_size=16,
-                    validation_split=0.2,
-                    callbacks=callbacks,
-                    verbose=1
-                )
-                
-                # Save model and scaler
-                self.model.save(os.path.join(self.output_dir, 'cnn_gru_seizure_model.h5'))
-                joblib.dump(self.scaler, os.path.join(self.output_dir, 'feature_scaler.pkl'))
-                print("Model created and saved")
-            except Exception as e:
-                print(f"Error creating model: {e}")
-                return {
-                    "file": edf_file,
-                    "prediction": "ERROR",
-                    "confidence": "0%",
-                    "visualization": None
-                }
-        
-        # Make predictions
-        try:
-            X_reshaped = X.reshape(-1, X.shape[-1])
-            X_scaled = self.scaler.transform(X_reshaped)
-            X_processed = X_scaled.reshape(X.shape)
-            
-            predictions_prob = self.model.predict(X_processed, verbose=0)
-            predictions = (predictions_prob > 0.5).astype(int)
-            
-            # Calculate seizure metrics
-            seizure_ratio = np.mean(predictions)
-            max_prob = np.max(predictions_prob)
-            has_seizure = seizure_ratio > 0.15 or max_prob > 0.85
-            
-            # Calculate confidence
-            confidence = max(seizure_ratio, max_prob) if has_seizure else 1.0 - max_prob
-            confidence = max(0.5, confidence)  # Minimum 50% confidence
+    def __init__(self, model_dir=DEFAULT_MODEL_DIR):
+        model_path = os.path.join(model_dir, "cnn_gru_seizure_model.h5")
+        scaler_path = os.path.join(model_dir, "feature_scaler.pkl")
+        if not (os.path.exists(model_path) and os.path.exists(scaler_path)):
+            raise FileNotFoundError(
+                f"Trained model not found in {model_dir} (need cnn_gru_seizure_model.h5 and feature_scaler.pkl)"
+            )
+        print(f"Loading CNN-GRU model from {model_path}")
+        self.model = load_model(model_path, compile=False)
+        self.scaler = joblib.load(scaler_path)
 
-            # Never report 100 %: compress anything above 0.95 into the 95–99 % band
-            if confidence >= 0.95:
-                confidence = 0.95 + (confidence - 0.95) * (0.04 / 0.05)
-            confidence = min(confidence, 0.99)
-            
-            # Create prediction visualization
-            self._create_prediction_visualization(signals, fs, predictions_prob.flatten(), predictions.flatten(), edf_file, output_img)
-            
-            return {
-                "file": edf_file,
-                "prediction": "SEIZURE" if has_seizure else "NO SEIZURE",
-                "confidence": f"{confidence:.2%}",
-                "visualization": output_img
-            }
-        except Exception as e:
-            print(f"Error during prediction: {e}")
-            return {
-                "file": edf_file,
-                "prediction": "ERROR",
-                "confidence": "0%",
-                "visualization": None
-            }
-    
-    def _create_prediction_visualization(self, signals, fs, probabilities, predictions, edf_file, output_file):
+    def extract_temporal_lobe_data(self, file_path):
+        print(f"Reading EDF file: {file_path}")
+        raw = mne.io.read_raw_edf(file_path, preload=True)
+        print(f"Available channels: {raw.ch_names}")
+        channel = pick_channel(raw.ch_names)
+        if channel is None:
+            raise ValueError("No EEG channel found in this file")
+        print(f"Using channel: {channel}")
+        signals = np.nan_to_num(raw.get_data(picks=channel))
+        return signals, raw.info["sfreq"], channel
+
+    def extract_features(self, signals, fs):
+        window_length = int(WINDOW_SECONDS * fs)
+        step = int(window_length * (1 - WINDOW_OVERLAP))
+        if signals.shape[1] < window_length:
+            return None
+        sequences = []
+        for i in range(0, signals.shape[1] - window_length + 1, step):
+            window = signals[0, i:i + window_length]
+            resampled = np.interp(
+                np.linspace(0, 1, MODEL_INPUT_SAMPLES),
+                np.linspace(0, 1, window.shape[0]),
+                window,
+            )
+            sequences.append(resampled[:, np.newaxis])
+        return np.nan_to_num(np.array(sequences))
+
+    def predict(self, edf_file, output_dir=None):
+        """Score every 4-second window and flag sustained high-probability runs (see find_events)."""
+        signals, fs, channel = self.extract_temporal_lobe_data(edf_file)
+        X = self.extract_features(signals, fs)
+        if X is None or len(X) == 0:
+            raise ValueError(f"Recording is shorter than one {WINDOW_SECONDS}-second analysis window")
+
+        X_scaled = self.scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)
+        probabilities = self.model.predict(X_scaled, verbose=0).flatten()
+        above = probabilities > 0.5
+        fraction_above = float(np.mean(above))
+        max_prob = float(np.max(probabilities))
+        events, isolated = find_events(probabilities.tolist())
+        has_seizure = bool(events)
+
+        visualization = None
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            name = os.path.splitext(os.path.basename(edf_file))[0]
+            visualization = os.path.join(output_dir, f"{name}_prediction.png")
+            self._create_prediction_visualization(signals, fs, probabilities, events, visualization)
+
+        return {
+            "file": os.path.basename(edf_file),
+            "channel": channel,
+            "fs": float(fs),
+            "duration_s": round(signals.shape[1] / fs, 2),
+            "windows": int(len(probabilities)),
+            "windows_above_threshold": int(np.sum(above)),
+            "fraction_above_threshold": round(fraction_above, 4),
+            "probability_max": round(max_prob, 4),
+            "probability_mean": round(float(np.mean(probabilities)), 4),
+            "decision": "SEIZURE" if has_seizure else "NO SEIZURE",
+            "events": events,
+            "isolated_spikes": isolated,
+            "rule": RULE_TEXT,
+            "window_seconds": WINDOW_SECONDS,
+            "window_step_s": WINDOW_SECONDS * (1 - WINDOW_OVERLAP),
+            "window_probabilities": [round(float(p), 4) for p in probabilities],
+            "visualization": visualization,
+        }
+
+    def _create_prediction_visualization(self, signals, fs, probabilities, events, output_file):
         print(f"Creating visualization and saving to {output_file}")
-        plt.figure(figsize=(12, 10))
-        
-        # EEG Signal plot
-        plt.subplot(4, 1, 1)
+        ink, ash, ember, line = "#ffffff", "#858585", "#d9963f", "#2a2d2d"
+        plt.rcParams.update({
+            "figure.facecolor": "#0b0b0b", "axes.facecolor": "#0b0b0b",
+            "axes.edgecolor": line, "axes.labelcolor": ash, "text.color": ink,
+            "xtick.color": ash, "ytick.color": ash, "grid.color": line, "font.size": 9,
+        })
+        fig, axes = plt.subplots(4, 1, figsize=(12, 10))
         time = np.arange(signals.shape[1]) / fs
-        plt.plot(time, signals[0], 'b-', linewidth=1)
-        plt.title('EEG Signal (Selected Channel)')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Amplitude')
-        
-        # Power Spectral Density
-        plt.subplot(4, 1, 2)
-        chunk_length = min(int(fs * 5), signals.shape[1])
-        freqs, psd = welch(signals[0, :chunk_length], fs, nperseg=min(1024, chunk_length))
-        plt.semilogy(freqs, psd)
-        plt.title('Power Spectral Density')
-        plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Power/Frequency (dB/Hz)')
-        plt.xlim([0, min(100, fs/2)])
-        
-        # Spectrogram
-        plt.subplot(4, 1, 3)
-        plt.specgram(signals[0], NFFT=256, Fs=fs, noverlap=128, cmap='viridis')
-        plt.title('Spectrogram')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Frequency (Hz)')
-        plt.colorbar(format='%+2.0f dB')
-        
-        # Seizure Probability
-        plt.subplot(4, 1, 4)
-        window_size = 4
-        overlap = 0.5
-        window_step = window_size * (1 - overlap)
-        window_times = np.arange(len(probabilities)) * window_step + window_size/2
-        
-        plt.plot(window_times, probabilities, 'r-', linewidth=2, label='Seizure Probability')
-        plt.axhline(y=0.5, color='k', linestyle='--', label='Threshold')
-        plt.axhline(y=0.85, color='orange', linestyle='--', label='High Confidence')
-        plt.title('CNN-GRU Seizure Probability')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Probability')
-        plt.ylim([-0.05, 1.05])
-        plt.legend()
-        
-        plt.tight_layout()
-        plt.savefig(output_file, dpi=100)
-        plt.close()
+
+        axes[0].plot(time, signals[0], color=ink, linewidth=0.7)
+        axes[0].set_title("EEG signal (selected channel)", loc="left")
+        axes[0].set_xlabel("Time (s)")
+
+        chunk = min(int(fs * 5), signals.shape[1])
+        freqs, psd = welch(signals[0, :chunk], fs, nperseg=min(1024, chunk))
+        axes[1].semilogy(freqs, psd, color=ink, linewidth=1)
+        axes[1].axvspan(8, 13, color=ember, alpha=0.15)
+        axes[1].set_xlim([0, min(60, fs / 2)])
+        axes[1].set_title("Power spectral density (alpha band shaded)", loc="left")
+        axes[1].set_xlabel("Frequency (Hz)")
+
+        axes[2].specgram(signals[0], NFFT=256, Fs=fs, noverlap=128, cmap="magma")
+        axes[2].set_ylim([0, min(60, fs / 2)])
+        axes[2].set_title("Spectrogram", loc="left")
+        axes[2].set_xlabel("Time (s)")
+
+        step = WINDOW_SECONDS * (1 - WINDOW_OVERLAP)
+        window_times = np.arange(len(probabilities)) * step + WINDOW_SECONDS / 2
+        axes[3].plot(window_times, probabilities, color=ember, linewidth=2, marker="o", markersize=4)
+        axes[3].axhline(y=0.5, color=ash, linestyle="--", linewidth=1)
+        axes[3].axhline(y=0.85, color=ink, linestyle=":", linewidth=1)
+        axes[3].set_ylim([-0.05, 1.05])
+        for ev in events:
+            for ax in (axes[0], axes[3]):
+                ax.axvspan(ev["start_s"], ev["end_s"], color="#d03b3b", alpha=0.25)
+            axes[3].text(ev["start_s"], 1.0, f'{ev["start_s"] / 60:.0f}:{ev["start_s"] % 60:02.0f}', color=ink, fontsize=8, va="bottom")
+        axes[3].set_title(f"Seizure probability per 4 s window · {len(events)} sustained event(s) shaded (dashed 0.5, dotted 0.85)", loc="left")
+        axes[3].set_xlabel("Time (s)")
+
+        for ax in axes:
+            ax.spines[["top", "right"]].set_visible(False)
+        fig.tight_layout()
+        fig.savefig(output_file, dpi=100)
+        plt.close(fig)
         print(f"Visualization saved to: {output_file}")
+
 
 def main():
     if len(sys.argv) < 2:
         print("Usage: python predict_seizure.py <edf_file_path> [output_directory]")
         sys.exit(1)
-    
+
     edf_file = sys.argv[1]
     output_dir = sys.argv[2] if len(sys.argv) > 2 else "EEG_Data_new"
-    
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
-    predictor = SeizurePredictor(output_dir=output_dir)
-    result = predictor.predict(edf_file)
-    
+
+    try:
+        result = SeizurePredictor().predict(edf_file, output_dir=output_dir)
+    except FileNotFoundError as e:
+        print(f"ERROR_JSON {json.dumps({'code': 'MODEL_MISSING', 'message': str(e)})}", flush=True)
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR_JSON {json.dumps({'code': 'UNREADABLE', 'message': str(e)})}", flush=True)
+        sys.exit(1)
+
     print(f"Prediction for {edf_file}:")
-    print(f"Result: {result['prediction']}")
-    print(f"Confidence: {result['confidence']}")
+    print(f"Result: {result['decision']}")
+    print(f"Highest window probability: {result['probability_max']:.2%}")
     print(f"Visualization saved to: {result['visualization']}")
+    print(f"RESULT_JSON {json.dumps(result)}", flush=True)
+
 
 if __name__ == "__main__":
     main()
