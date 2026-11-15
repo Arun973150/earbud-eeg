@@ -63,3 +63,10 @@ __pycache__/
 .Trashes
 ehthumbs.db
 Thumbs.db
+# Python virtual environment
+.venv/
+
+# Local participant data and recordings made by the app (personal health data)
+data/
+EEG_Data_new/brain_*.edf
+EEG_Data_new/*_prediction.png

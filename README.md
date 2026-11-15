@@ -1,333 +1,195 @@
-# AeroMind
+# Earbud·EEG
 
-## Earbud EEG-Based Neural Monitoring System for Deep Space Missions
+## Brain health, protected earlier
 
-AeroMind is a wearable Ear-EEG neural monitoring platform designed to enable continuous brain activity monitoring for astronauts during long-duration space missions. The system integrates dry-electrode Earbud EEG technology, real-time signal processing, and AI-driven neural analysis to detect fatigue, cognitive overload, and abnormal neurological activity.
+Earbud·EEG is an earbud-shaped EEG with dry electrodes inside the ear canal. A three-minute check records your brain's rhythm and shows it back to you, explained: a clear seizure-screen verdict, your raw brainwaves, your rhythm bands and a spectrogram. An optional ten-minute check adds speed, memory, hearing and mood. Results are compared with **your own baseline**, so meaningful change is spotted early. (Music playback is on the roadmap; the current hardware is EEG only.) Every finding becomes a plain-language prevention plan. Anything unusual goes to a clinician before it reaches you as a referral.
 
-Current astronaut health monitoring systems focus primarily on physiological parameters such as heart rate, oxygen saturation, and temperature. AeroMind addresses a critical gap by introducing continuous neural monitoring as an additional layer of mission safety.
-
----
-
-## Problem Statement
-
-Human spaceflight exposes astronauts to unique neurological stressors including:
-
-- Space radiation exposure
-- Microgravity-induced physiological changes
-- Sleep and circadian rhythm disruption
-- Cognitive fatigue
-- Long-duration isolation and confinement
-
-Despite these risks, current spacesuits and flight helmets lack direct neural monitoring capabilities, making it difficult to identify early signs of fatigue, cognitive degradation, or neurological anomalies during mission-critical operations.
+Built for **Population Health · Challenge 08: Protecting Brain Health Earlier**.
 
 ---
 
-## Solution Overview
-
-AeroMind utilizes an Earbud-based EEG architecture to continuously monitor temporal-lobe neural activity without interfering with astronaut helmets or operational equipment.
-
-The system provides:
-
-- Continuous brain activity monitoring
-- AI-powered fatigue assessment
-- Cognitive workload analysis
-- Seizure and anomaly detection
-- Real-time mission alerts
-- Neural telemetry for future mission control integration
-
----
-
-## System Architecture
-
-The AeroMind platform consists of six major subsystems:
-
-1. Earbud EEG Acquisition Module
-2. Signal Conditioning Layer
-3. Embedded Data Acquisition Layer
-4. Signal Processing Pipeline
-5. AI Analysis Engine
-6. Visualization and Alert Platform
-
-### Data Flow
+## How it works
 
 ```text
-Earbud EEG Sensors
-        │
+Dry Ag/AgCl electrodes in the ear canal
+        │  temporal-lobe EEG
         ▼
-BioAmp EXG Amplifier
-        │
+BioAmp EXG Pill ── amplifies the microvolt signal
         ▼
-Microcontroller Acquisition
-        │
+Arduino Uno ── 10-bit ADC, ~250 Hz, USB serial @ 115200 (port auto-detected)
         ▼
-Signal Preprocessing
-        │
+python/brain_check.py ── 50 Hz notch, 0.5–45 Hz band-pass, eyes-closed / eyes-open protocol,
+        │                artifact rejection, quality grade, EDF file, CNN-GRU seizure screen
         ▼
-Feature Extraction
-        │
+Express server ── scoring, personal-baseline change detection, risk context,
+        │         clinician review queue, validation metrics (local JSON store)
         ▼
-CNN-GRU AI Model
-        │
-        ▼
-Fatigue / Neural Risk Analysis
-        │
-        ▼
-Dashboard & Alerts
+React app ── landing page, brain check, reports, trends, clinician and validation pages
 ```
 
----
+**The check (about 3 minutes):**
+1. **Who's checking?** Pick your name, or add a name and birth year. Consent is a single "I agree" the first time.
+2. **Fit the earbud.** A live brainwave trace and contact meter. After about 2 s of good contact it counts down and starts by itself.
+3. **Record.** 60 s eyes closed, a chime, then 60 s eyes open.
+4. **One answer.** The result page shows **NORMAL**, **ABNORMAL** or **UNCLEAR**, then 4 tiles (seizure, brain rhythm, eyes-open response, signal), then the 4 classic plots: EEG signal, power spectrum with shaded bands, spectrogram, and seizure probability with the 50% and 85% lines.
 
-## Core Features
+**Optional add-on, "Add memory & focus" (4 minutes):** 20 s relax, then reaction time, same-or-different and pattern memory while the earbud keeps recording, then 4 mood taps. The report adds per-game brain cards (alpha drop / theta rise = focus) and memory and speed against the person's own range.
 
-### Continuous Neural Monitoring
+### The Normal / Abnormal rule (`brainhealth/verdict.js`)
+| Answer | When |
+|---|---|
+| **Unclear** | Signal graded poor, or less than 40% of it usable |
+| **Abnormal** | A sustained seizure-like event (3+ consecutive 4-s windows above 85%), **or** peak alpha below 8 Hz, **or** theta/alpha above 1.5 with a weak eyes-open response, **or** a reliable decline in brain rhythm against the person's own baseline |
+| **Normal** | Everything else |
 
-Captures temporal-lobe EEG activity through dry electrodes embedded within a wearable earbud platform.
-
-### Helmet-Compatible Design
-
-Designed for integration with astronaut helmets and future EVA systems without requiring bulky scalp electrodes or conductive gels.
-
-### AI-Powered Neural Analysis
-
-Utilizes deep learning models to identify:
-
-- Fatigue indicators
-- Cognitive workload changes
-- Abnormal neural activity
-- Potential seizure-related patterns
-
-### Real-Time Monitoring Dashboard
-
-Provides:
-
-- Live EEG visualization
-- Spectral analysis
-- Fatigue metrics
-- Neural risk indicators
-- Alert generation
-
-### Mission Safety Support
-
-Transforms raw neural signals into actionable insights that may support future astronaut health monitoring systems.
+Slowing is described as "linked to memory decline", never as a diagnosis.
 
 ---
 
-## Hardware Components
+## How each challenge criterion is met
 
-| Component | Purpose |
-|------------|----------|
-| Dry EEG Electrodes | Neural signal acquisition |
-| Earbud Housing | Wearable sensing platform |
-| BioAmp EXG Pill | Signal amplification |
-| Arduino Uno | Signal digitization |
-| Communication Interface | Data transmission |
-| Processing Workstation | AI inference and visualization |
-
----
-
-## Signal Processing Pipeline
-
-The AeroMind processing framework consists of:
-
-### Signal Acquisition
-
-Collection of low-amplitude EEG signals from the temporal region.
-
-### Preprocessing
-
-- Bandpass Filtering (0.5–45 Hz)
-- Notch Filtering (50 Hz)
-- Artifact Reduction
-- Signal Normalization
-
-### Feature Extraction
-
-Extraction of:
-
-- Delta Power
-- Theta Power
-- Alpha Power
-- Beta Power
-- Gamma Power
-- Theta/Alpha Ratio
-- Statistical Features
-
-### AI Classification
-
-A hybrid CNN-GRU architecture performs:
-
-- Fatigue Detection
-- Cognitive State Analysis
-- Neural Risk Assessment
-- Seizure Detection
+| Criterion | What Earbud·EEG does | Where to see it |
+|---|---|---|
+| **1. Culturally valid, accessible assessment** | Wordless tasks (lights, shapes, tones, resting EEG), each with a practice round. Read-aloud instructions, large-text and high-contrast modes, large buttons and full keyboard control, larger stimuli for low vision. A helper can sit in, and an informant can answer the daily-life questions. Language, education, age and digital familiarity are recorded so performance can be compared across groups. | `/app` → a check |
+| **2. Longitudinal change detection** | Personal baseline = first 3 valid, unconfounded checks. A Reliable Change Index for each measure. Clear thresholds: repeat in 14 days for a one-off decline; clinician review when a decline is confirmed on the next check or appears in 2 domains at once; urgent review for rapid change since the last check. Fasting, illness and short sleep turn a borderline flag into a repeat. | Report, Trends |
+| **3. Integrated risk context** | A health profile (body, metabolic, sleep, mood, lifestyle, head injury, senses, family history, optional APOE with its own consent), mapped to the 14 modifiable risk factors of the Lancet Commission 2024, plus the CAIDE midlife dementia risk score. | Health profile |
+| **4. Personalised prevention and timely care** | Plain-language report: what changed, what it does and doesn't mean, evidence-linked actions for each risk factor, when to retest, and who to see (primary care, neurology, geriatrics, mental health, audiology, sleep clinic). An optional AI explainer limited to the results of that check. | Report |
+| **5. Safety and human oversight** | A "risk check, not a diagnosis" message on every report. Personal ranges shown as uncertainty bands. EEG quality gating, and accuracy limits disclosed. People see their result straight away; every Abnormal or review result is also **queued automatically for a clinician's second look** in the staff console (footer link). Clinician decisions appear on the report as a doctor's note. Audit log. | `/clinician` |
+| **6. Validation and local performance** | A live dashboard: completion, test–retest ICC, sensitivity, specificity, PPV, time from onset to flag, false-referral burden and days to clinical review, each broken down by first language, age and education. A random 20% verification sample measures specificity honestly. Includes a proposed local validation study. | `/validation` |
 
 ---
 
-## Aerospace Adaptation
+## Running it
 
-AeroMind is specifically designed to address neurological monitoring challenges in aerospace environments.
+You need Node.js 18+ and Python 3.10–3.12. Everything runs offline on one laptop; MongoDB is not needed.
 
-### Deep Space Applications
+```bash
+# 1. Python environment for the signal pipeline (one-off, about 600 MB)
+cd eeg-web-app
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt      # macOS/Linux: .venv/bin/python
 
-- Long-duration missions
-- Lunar exploration
-- Martian missions
-- Commercial space stations
-- Extravehicular Activities (EVAs)
+# 2. Server dependencies, the simulated demo cohort, and the tests
+npm install
+npm run seed      # 60 SIMULATED participants with up to two years of checks
+npm run reanalyze # (server stopped) add the latest report visuals to older real recordings
+npm test
 
-### Monitored Risk Factors
+# 3. Build the web app and start the server
+cd ..
+npm install
+npm start         # builds the React app, then serves everything on http://localhost:3000
+```
 
-- Cognitive fatigue
-- Sleep disruption
-- Reduced situational awareness
-- Neurological anomalies
-- Cognitive workload overload
+The server finds `eeg-web-app/.venv` on its own. Optional settings go in `eeg-web-app/.env`:
 
----
+| Variable | Default | Purpose |
+|---|---|---|
+| `CLINICIAN_PIN` | `1234` | PIN for the clinician pages (demo only; real use needs hospital sign-in) |
+| `OPENAI_API_KEY` | none | Turns on the restricted AI explainer on reports |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Model used by the explainer |
+| `EEG_PORT` | auto | Force a serial port, for example `COM5` |
+| `MAINS_HZ` | `50` | Mains frequency for the notch filter (50 in India and the UAE) |
+| `SESSION_SECRET` | dev value | Cookie signing secret |
+| `PYTHON_BIN` | `.venv` | Path to a different Python |
 
-## Novel Contributions
+For front-end development, run `npm run dev` in the root (Vite on port 5173) while the server runs on port 3000. Vite forwards API calls to the server.
 
-### Helmet-Compatible Neural Monitoring
+### With the earbud
 
-Provides continuous EEG monitoring without interfering with astronaut equipment.
-
-### Temporal-Lobe Ear-EEG Acquisition
-
-Utilizes in-ear sensing for practical long-term monitoring.
-
-### AI-Driven Neural Safety Layer
-
-Transforms neural data into operational mission intelligence.
-
-### Mission-Oriented Architecture
-
-Designed around astronaut safety rather than conventional clinical diagnostics.
-
-### Future Spacesuit Integration
-
-Supports future deployment within aerospace health monitoring ecosystems.
-
----
-
-## Comparison with Existing Solutions
-
-| Feature | Clinical EEG | Consumer EEG | Spacesuit Monitoring | AeroMind |
-|----------|----------|----------|----------|----------|
-| Brain Monitoring | Yes | Yes | No | Yes |
-| Helmet Compatible | No | No | Yes | Yes |
-| Dry Electrodes | No | Yes | N/A | Yes |
-| Fatigue Detection | Limited | Limited | No | Yes |
-| Seizure Detection | Yes | No | No | Yes |
-| AI Analysis | Limited | Limited | No | Yes |
-| Aerospace Focused | No | No | No | Yes |
+1. Plug in the Arduino. The app picks the port by its USB ID (Arduino and CH340 boards), so you don't need to know the COM number. On the development laptop, COM3 is a Bluetooth port, which is why a hard-coded COM3 failed.
+2. In the check, choose **Earbud**. Run **Check contact** and wait for "Good contact" (4 µV or more; the same thresholds as `python/check_electrode.py`).
+3. The recording measures the real sampling rate and resamples if it is more than 5% off 250 Hz. Peak alpha frequency depends on this.
+4. If the earbud isn't connected, the app says so and offers a clearly labelled simulated signal, or lets you skip EEG for that check.
 
 ---
 
-## Future Roadmap
+## Demo script for judges (about 6 minutes)
 
-### Hardware
-
-- Custom PCB development
-- Miniaturized electronics
-- Wireless communication
-- Low-power architecture
-
-### Artificial Intelligence
-
-- Personalized neural baselines
-- Edge AI deployment
-- Adaptive fatigue prediction
-- Transformer-based EEG models
-
-### Aerospace Qualification
-
-- Thermal vacuum testing
-- Vibration testing
-- Radiation analysis
-- Human factors validation
-
-### Deployment
-
-- Smart helmet integration
-- Spacesuit integration
-- Mission control telemetry
-- Deep-space mission readiness
+1. **Landing page:** the problem and how it works. Click **Try now**.
+2. **EEG check:** add yourself (name and birth year), tap **I agree, start**, fit the earbud and watch the live wave turn green. Record for 2 minutes. The result opens on one word (NORMAL / ABNORMAL / UNCLEAR) with the 4 plots.
+3. **Add memory & focus:** play the 3 games with the earbud in. The report shows whether your brain switched into focus mode during each game.
+4. **Abnormal example:** **Upload EEG file** with a long scalp EDF. Seizure-like stretches are shaded red on the probability plot.
+5. **Over time:** open **SIM-008**. Its history dots and **Trends** show change against the person's own baseline.
+6. **Human oversight:** footer → **Clinician console** (PIN 1234). Abnormal checks are already queued. Record a decision, and it appears on the report as a doctor's note.
+7. **Validation:** completion, sensitivity, specificity, false referrals and time to review by language, age and education. Local test–retest reliability replaces the published defaults. The page also shows a proposed Abu Dhabi validation study.
 
 ---
 
-## Potential Applications
+## How change is decided
 
-### Aerospace
+For each measure, after three baseline checks:
 
-- Astronaut health monitoring
-- EVA safety systems
-- Mission readiness assessment
+`RCI = direction × (today − baseline mean) / (SD × √(2 × (1 − r)))`
 
-### Aviation
+`SD` is the between-person standard deviation and `r` is test–retest reliability. Both start from published defaults (`eeg-web-app/brainhealth/metrics.js`). Once there are 20 or more retest pairs, `r` switches to the program's own ICC.
 
-- Pilot fatigue monitoring
-- Cognitive workload analysis
+| RCI | Status |
+|---|---|
+| above −1.5 | within usual range |
+| −1.5 to −1.96 | slightly off |
+| −1.96 or lower | below usual range |
 
-### Defense
+| Outcome | Rule |
+|---|---|
+| **Urgent review** | Seizure screen positive (on good-quality EEG), or a drop of RCI −3 or more *since the previous check* in two domains |
+| **Clinician review** | A decline confirmed on two checks in a row; declines in two domains at once; daily-function score of 4 or more; PHQ-2 or GAD-2 of 3 or more |
+| **Repeat in 14 days** | A single unconfirmed decline; two or more "slightly off" measures; poor EEG quality; 3 or more missed tones in one ear; or a confounded check that would otherwise be reviewed for a two-domain decline |
+| **Building baseline** | Fewer than three valid checks so far |
+| **Steady** | Otherwise. Next check in 90 days (age 65+ or 3+ risk factors), else 180 days |
 
-- Human performance monitoring
-- Operational readiness assessment
-
-### Industrial Safety
-
-- High-risk operator monitoring
-- Fatigue detection systems
-
-### Healthcare
-
-- Remote neurological monitoring
-- Seizure detection assistance
+The rules are pure functions in `brainhealth/evaluate.js`, covered by `npm test`.
 
 ---
 
-## Technology Stack
+## Safety and limits
 
-### Hardware
-
-- Dry EEG Electrodes
-- BioAmp EXG Pill
-- Arduino Uno
-
-### Signal Processing
-
-- NumPy
-- SciPy
-- MNE-Python
-
-### Machine Learning
-
-- TensorFlow
-- Keras
-- Scikit-Learn
-
-### Backend
-
-- Python
-- Flask
-
-### Frontend
-
-- React.js
-
-### Storage
-
-- MongoDB
+- **Not a diagnosis.** It identifies risk and change. Clinicians decide what results mean.
+- **Provisional thresholds.** The variation allowances come from published studies until local data replaces them, and they need local validation.
+- **EEG markers.** Peak alpha frequency, theta/alpha balance and alpha reactivity are research markers of slowing, not diagnostic tests. They are only used on good-quality signals.
+- **Seizure model.** 96.1% sensitivity and 95.3% specificity on scalp-EEG test data. Not yet validated on ear-EEG or in this population. The app shows the raw model probability.
+- **Hearing check.** Not calibrated. It compares the person with themselves over time.
+- **Simulated data.** The cohort is generated with the same reliability assumptions as the algorithm, so its validation numbers are optimistic. It is tagged SIMULATED everywhere.
+- **English-only interface (for now).** The tasks need no reading. All participant-facing wording is in `src/copy.js`, ready for Arabic translation and right-to-left layout.
+- **Local data only.** Everything is stored in `eeg-web-app/data/store.json`, and nothing leaves the machine except questions sent to the optional AI explainer.
 
 ---
 
-## Research Impact
+## Repository layout
 
-AeroMind explores the future of continuous neural monitoring in human spaceflight by combining wearable neurotechnology, artificial intelligence, and aerospace engineering principles into a unified mission-safety platform.
+| Path | Contents |
+|---|---|
+| `src/pages/` | Landing page, participant pages (home, consent, profile, check, report, trends, EDF screen), clinician and validation pages |
+| `src/check/` | The check: task stage, reaction/pattern/memory/hearing tasks, EEG step, questionnaires |
+| `src/components/` | Nav, footer, particle brain, cards, charts, shared UI |
+| `src/copy.js` | All participant-facing wording |
+| `eeg-web-app/app.js`, `api.js`, `jobs.js` | Express server, API routes, Python job runner |
+| `eeg-web-app/brainhealth/` | Scoring, change detection, risk, validation, restricted chat, store, simulated cohort, tests |
+| `eeg-web-app/python/brain_check.py` | Earbud recording, features, quality, simulated signal |
+| `eeg-web-app/python/eeg_processor.py` | Serial acquisition, filtering, EDF writing (also a stand-alone command-line tool) |
+| `eeg-web-app/python/predict_seizure.py` | CNN-GRU seizure screen for EDF files |
+| `eeg-web-app/python/check_electrode.py` | Stand-alone live electrode contact checker |
+| `eeg-web-app/EEG_Data_new/` | Trained model, scaler and sample recordings |
 
-The project demonstrates how compact Ear-EEG systems can evolve from healthcare wearables into operational tools supporting astronaut health, cognitive performance, and mission success.
+The Arduino firmware is not in this repository yet. Please add the `.ino` sketch so the sampling setup is documented.
 
 ---
 
-## License
+## Roadmap
 
-This project is intended for research, educational, and innovation purposes.
+- Arabic interface with right-to-left layout; Hindi, Urdu and Malayalam next
+- Passive monitoring while listening to music, and sleep EEG overnight
+- Auditory P300 through the earbud speaker, a language-free cognitive marker
+- Wireless BLE streaming (nRF52840) and on-device inference
+- FHIR export and regional health-information-exchange integration
+- The local validation study shown on the validation page
+
+## References
+
+- Livingston G, et al. Dementia prevention, intervention, and care: 2024 report of the Lancet standing Commission. *Lancet* 2024.
+- Kivipelto M, et al. Risk score for the prediction of dementia risk in 20 years among middle aged people (CAIDE). *Lancet Neurol* 2006;5:735–41.
+- Jacobson NS, Truax P. Clinical significance: a statistical approach to defining meaningful change. *J Consult Clin Psychol* 1991.
+- Shrout PE, Fleiss JL. Intraclass correlations: uses in assessing rater reliability. *Psychol Bull* 1979.
+- Kroenke K, et al. The PHQ-2 (2003) and the GAD-2 (2007).
+
+This is a research and educational prototype, not a certified medical device.

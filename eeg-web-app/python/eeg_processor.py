@@ -6,10 +6,13 @@ and converts to EDF format for epilepsy analysis
 """
 
 import serial
+from serial.tools import list_ports
 import time
 import numpy as np
 from datetime import datetime
-import pyedflib  
+import pyedflib
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy import signal
 import os
@@ -17,6 +20,10 @@ import sys
 
 SERIAL_PORT = 'COM3'
 BAUD_RATE = 115200
+# Mains frequency to notch out: 50 Hz in India and the UAE, 60 Hz in the Americas.
+MAINS_HZ = float(os.environ.get('MAINS_HZ', 50))
+# USB vendor IDs: Arduino, Arduino.org, CH340 clones, FTDI, CP210x
+_ARDUINO_VIDS = {0x2341, 0x2A03, 0x1A86, 0x0403, 0x10C4}
 
 # EEG parameters
 SAMPLING_RATE = 250  # Hz
@@ -28,34 +35,70 @@ DIGITAL_MAX = 32767
 
 OUTPUT_FOLDER = "EEG_Data_new"  
 
-def connect_to_arduino():
+def list_serial_ports():
+    """All serial ports, flagging the ones that look like an Arduino."""
+    ports = []
+    for p in list_ports.comports():
+        desc = f"{p.description or ''} {p.manufacturer or ''}".lower()
+        ports.append({
+            'device': p.device,
+            'description': p.description or '',
+            'arduino': p.vid in _ARDUINO_VIDS or 'arduino' in desc or 'ch340' in desc,
+        })
+    return ports
+
+def find_port():
+    """EEG_PORT env var, else the first Arduino-like USB serial device, else COM3."""
+    override = os.environ.get('EEG_PORT')
+    if override:
+        return override
+    for p in list_serial_ports():
+        if p['arduino']:
+            return p['device']
+    return SERIAL_PORT
+
+def connect_to_arduino(port=None):
     """Establish serial connection with Arduino"""
+    port = port or find_port()
     try:
-        ser = serial.Serial(SERIAL_PORT, BAUD_RATE)
-        print(f"Connected to Arduino on {SERIAL_PORT}")
+        ser = serial.Serial(port, BAUD_RATE)
+        print(f"Connected to Arduino on {port}")
         time.sleep(2)
         return ser
     except serial.SerialException as e:
-        print(f"[WARN] Could not connect to EEG earbud on {SERIAL_PORT}: {e}")
+        print(f"[WARN] Could not connect to EEG earbud on {port}: {e}")
         print("PORT_STATUS: NOT_CONNECTED")
         return None
 
-def collect_eeg_data(ser, duration_seconds=10):
-    """Collect EEG data from Arduino for a specified duration"""
+def collect_eeg_data(ser, duration_seconds=10, on_progress=None, should_stop=None):
+    """Collect EEG data from Arduino for a specified duration.
+
+    on_progress(elapsed_seconds, samples_so_far) is called about twice a second.
+    """
     print(f"Collecting EEG data for {duration_seconds} seconds...")
-    
+
     start_time = time.time()
+    last_progress = 0.0
     data = []
     timestamps = []
-    
-   
+
+
     ser.flushInput()
-    
-    
+
+
     inside_buffer = False
-    
+
     while time.time() - start_time < duration_seconds:
+        if should_stop and should_stop():
+            break
+        if on_progress and time.time() - last_progress >= 0.5:
+            last_progress = time.time()
+            on_progress(last_progress - start_time, data)
+        if ser.in_waiting == 0:
+            time.sleep(0.002)
+            continue
         if ser.in_waiting > 0:
+            line = ''
             try:
                 line = ser.readline().decode('utf-8').strip()
                 
@@ -94,6 +137,17 @@ def convert_to_microvolts(raw_data):
     return raw_data * conversion_factor
 
 
+def resample_to_nominal(data, duration_seconds):
+    """Return (data at SAMPLING_RATE, measured rate). The Arduino firmware decides the
+    real rate; frequency features such as peak alpha are wrong if we assume 250 Hz
+    and it isn't, so anything more than 5% off is resampled."""
+    measured = len(data) / duration_seconds if duration_seconds > 0 else 0.0
+    if measured > 0 and abs(measured - SAMPLING_RATE) / SAMPLING_RATE > 0.05:
+        print(f"[WARN] Measured sampling rate {measured:.1f} Hz differs from {SAMPLING_RATE} Hz; resampling.")
+        data = signal.resample(data, int(round(duration_seconds * SAMPLING_RATE)))
+    return np.asarray(data, dtype=float), measured
+
+
 # Signals below this std (μV) after bandpass filtering are considered stagnant
 _SIGNAL_STD_THRESHOLD = 3.0   # μV
 _SIGNAL_RANGE_THRESHOLD = 25.0  # μV
@@ -128,7 +182,7 @@ def preprocess_eeg_data(data):
     filtered_data = signal.filtfilt(b, a, data_uv)
     
     
-    b_notch, a_notch = signal.iirnotch(60, 30, SAMPLING_RATE)
+    b_notch, a_notch = signal.iirnotch(MAINS_HZ, 30, SAMPLING_RATE)
     filtered_data = signal.filtfilt(b_notch, a_notch, filtered_data)
     
     return filtered_data
@@ -140,9 +194,13 @@ def ensure_output_folder():
         print(f"Created output folder: {OUTPUT_FOLDER}")
     return os.path.abspath(OUTPUT_FOLDER)
 
-def save_to_edf(data, patient_id="X", recording_info=None, file_name=None):
+def save_to_edf(data, patient_id="X", recording_info=None, file_name=None, output_dir=None):
     """Save EEG data to EDF format"""
-    output_dir = ensure_output_folder()
+    if output_dir is None:
+        output_dir = ensure_output_folder()
+    else:
+        os.makedirs(output_dir, exist_ok=True)
+    data = np.clip(data, PHYSICAL_MIN, PHYSICAL_MAX)
     
     if file_name is None:
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -159,7 +217,7 @@ def save_to_edf(data, patient_id="X", recording_info=None, file_name=None):
                    'physical_max': PHYSICAL_MAX,
                    'digital_min': DIGITAL_MIN,
                    'digital_max': DIGITAL_MAX,
-                   'prefilter': 'HP:0.5Hz LP:45Hz Notch:60Hz',
+                   'prefilter': f'HP:0.5Hz LP:45Hz Notch:{MAINS_HZ:g}Hz',
                    'transducer': 'Ag/AgCl electrode'}
     
     
@@ -173,7 +231,7 @@ def save_to_edf(data, patient_id="X", recording_info=None, file_name=None):
         else:
             f.setStartdatetime(datetime.now())
             
-        f.setEquipment("Arduino + Bio Amplifier ExG Pill")
+        f.setEquipment("Arduino_BioAmp_EXG_Pill")
         f.setPhysicalMaximum(0, PHYSICAL_MAX)
         f.setPhysicalMinimum(0, PHYSICAL_MIN)
         f.setDigitalMaximum(0, DIGITAL_MAX)
@@ -365,7 +423,8 @@ def _resolve_duration(duration_seconds):
 def main(patient_id=None, duration_seconds=None):
     """Main function to run EEG analysis with optional command-line arguments"""
 
-    ser = connect_to_arduino()
+    port = find_port()
+    ser = connect_to_arduino(port)
 
     try:
         output_dir = ensure_output_folder()
@@ -390,7 +449,7 @@ def main(patient_id=None, duration_seconds=None):
         
      
         if ser is None:
-            print(f"\nEEG earbud is not connected on {SERIAL_PORT}.")
+            print(f"\nEEG earbud is not connected on {port}.")
             print("Connect the EEG earbud, confirm the COM port, and try again.")
             sys.exit(2)
 
@@ -398,10 +457,11 @@ def main(patient_id=None, duration_seconds=None):
 
         if len(data) < SAMPLING_RATE:
             print("\nSIGNAL_QUALITY: NO_DATA")
-            print(f"Only {len(data)} samples were received from {SERIAL_PORT}; at least {SAMPLING_RATE} are required.")
+            print(f"Only {len(data)} samples were received from {port}; at least {SAMPLING_RATE} are required.")
             print("Check the Arduino stream, electrode wiring, and firmware output format, then try again.")
             sys.exit(1)
 
+        data, _ = resample_to_nominal(data, duration_seconds)
         preprocessed_data = preprocess_eeg_data(data)
 
         signal_ok, sig_std, sig_range = check_signal_quality(preprocessed_data)

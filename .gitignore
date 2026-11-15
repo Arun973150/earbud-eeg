@@ -1,22 +1,37 @@
-node_modules
-dist
-dist-ssr
-*.local
-.DS_Store
-.vscode/*
-!.vscode/extensions.json
+# dependencies and builds
+node_modules/
+dist/
+dist-ssr/
+eeg-web-app/.venv/
+__pycache__/
+*.py[cod]
 
-# secrets — never publish
+# secrets: never publish
 .env
 **/.env
 *.env
+*.local
 
-# studied third-party site clone (ciridae.com) — do not publish
+# personal health data made by the app (participants, recordings, uploads)
+eeg-web-app/data/
+eeg-web-app/uploads/*
+!eeg-web-app/uploads/.gitkeep
+eeg-web-app/EEG_Data_new/*.edf
+eeg-web-app/EEG_Data_new/*.png
+eeg-web-app/EEG_Data_new/*.txt
+
+# commercial typefaces are licensed per install; the app falls back to open fonts
+public/fonts/
+
+# videos, design references and local tooling
+*.mp4
+*.mov
+*.webm
+DESIGN*.md
 reference/
-
-# uploads
-eeg-web-app/uploads/
-
-# logs & local tooling
+*.bak
 *.log
 .claude/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store

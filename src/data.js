@@ -1,10 +1,8 @@
 // All site content, sourced from the project report
 // "Earbud-based EEG Monitoring System" (MSRIT, CSP67 Mini Project, 2026)
 
-// Single server now: the marketing site and the dashboard are served by the same
-// Express app, so these are same-origin relative paths.
-export const APP_URL = ''
-export const DASHBOARD_URL = '/dashboard'
+// The landing page and the brain-health app are one React app served by Express.
+export const DASHBOARD_URL = '/app'
 
 export const STATS = [
   { value: '96.1', unit: '%', label: 'Seizure sensitivity' },
@@ -128,24 +126,45 @@ export const VISION = {
   kicker: 'a new kind of wearable',
   statement: 'Your smartwatch reads your wrist. This reads your mind.',
   body:
-    'They look and work like any wireless earbuds, so you can play your music all day. ' +
-    'But heart rate and step counts only hint at what is happening inside you, and the ' +
-    'brain holds the real signal, until now locked in the clinic. We build a medical ' +
-    'grade EEG sensor into the earbuds you already wear, so the most important data you ' +
-    'have finally goes where you go.',
+    'Heart rate and step counts only hint at what is happening in the brain. Dry electrodes in an ' +
+    'earbud pick up the brain\'s own electrical rhythm, with no gel, no cap and no clinic. A short ' +
+    'check shows your brainwaves, screens for seizure-like activity and compares you with yourself ' +
+    'over time, so meaningful change shows up early. Next: music earbuds that monitor while you listen.',
 }
 
+// Facts on the landing page. The two Lancet figures are from Livingston et al.,
+// Lancet Commission on dementia prevention, 2024.
+export const EVIDENCE = [
+  { value: '45', unit: '%', label: 'of dementia linked to modifiable risks' },
+  { value: '14', unit: '', label: 'modifiable risk factors (Lancet 2024)' },
+  { value: '3', unit: 'min', label: 'for one EEG check' },
+  { value: '3', unit: 'checks', label: 'to learn your personal baseline' },
+]
+
 export const CAPABILITIES = [
-  { title: 'Seizure detection', desc: 'Catch focal onset seizures the moment they emerge and alert the people who matter.' },
-  { title: 'Stress & calm', desc: 'Read the balance between tension and relaxation, continuously and unobtrusively.' },
-  { title: 'Focus & load', desc: 'Measure attention and cognitive load to protect deep work and flag burnout early.' },
-  { title: 'Sleep staging', desc: 'Track a full night of sleep from a single comfortable in ear sensor.' },
-  { title: 'Auditory attention', desc: 'Know what the brain is actually listening to, the basis for smarter hearing.' },
-  { title: 'Mood adaptive sound', desc: 'Let playback respond to your brain state, not just your playlist.' },
+  { title: 'Seizure screening', desc: 'Every recording runs through our CNN-GRU seizure model, with a clear yes-or-no verdict and a second-by-second timeline.' },
+  { title: 'See your brainwaves', desc: 'Your raw signal, your rhythms and a spectrogram, each explained in plain words, straight after every check.' },
+  { title: 'Brain rhythm markers', desc: 'Peak alpha frequency and how your rhythm reacts when you open your eyes, early markers of slowing.' },
+  { title: 'Change over time', desc: 'Three checks set your personal baseline. After that we flag only changes bigger than your normal day-to-day variation.' },
+  { title: 'Speed & memory (optional)', desc: 'A longer check adds wordless games for reaction time, visual comparison and pattern memory.' },
+  { title: 'Your prevention plan', desc: 'Blood pressure, sleep, mood, activity and family history become plain-language actions and the right referral.' },
 ]
 
 export const STEPS = [
-  { title: 'Sense', desc: 'Dry electrodes inside the ear pick up temporal lobe activity. No gel, no cap, no clinic.' },
-  { title: 'Understand', desc: 'Real time analysis reads the stream on the fly, separating signal from noise.' },
-  { title: 'Respond', desc: 'Insights, alerts and adaptive audio, the brain finally acting on its own data.' },
+  { title: 'Sense', desc: 'Three minutes with the earbud in: relax with your eyes closed, then open them at the chime.' },
+  { title: 'Compare', desc: 'Every result is compared with your own baseline, not a one-off score or someone else’s norms.' },
+  { title: 'Act', desc: 'Clear next steps, a repeat check when something looks off, and a clinician for anything that needs a closer look.' },
+]
+
+export const SAFETY = [
+  { k: 'Risk, not diagnosis', v: 'We flag change and risk. Diagnosis stays with qualified clinicians.' },
+  { k: 'A clinician in the loop', v: 'You see your result straight away. Abnormal results are also sent to a clinician for a second look.' },
+  { k: 'Honest about uncertainty', v: 'Every result shows your usual range, the signal quality and the known limits of each measure.' },
+  { k: 'Consent for each kind of data', v: 'EEG, questionnaires, health history and genetic information each need their own consent. Data stays on the device in this prototype.' },
+]
+
+export const ACCESS = [
+  { title: 'No reading needed', desc: 'Tasks use shapes, lights and tones, with every instruction available read aloud.' },
+  { title: 'Bigger and clearer', desc: 'Large-text and high-contrast modes, big buttons, and full keyboard control.' },
+  { title: 'Help is welcome', desc: 'A family member or health worker can sit in, and answer the daily-life questions for you.' },
 ]
