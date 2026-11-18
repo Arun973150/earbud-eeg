@@ -8,6 +8,12 @@ const multer = require("multer");
 
 const api = require("./api");
 const store = require("./brainhealth/store");
+const secure = require("./brainhealth/secure");
+
+const EEG_DIR = path.join(__dirname, "EEG_Data_new");
+// One-time migration: older plaintext recordings and plots are encrypted at rest.
+const migrated = secure.encryptAll(EEG_DIR, (n) => /\.(edf|png|txt)$/i.test(n));
+if (migrated) console.log(`Encrypted ${migrated} older recording file(s).`);
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -25,7 +31,16 @@ app.use(
 );
 
 app.use("/api", api);
-app.use("/eeg_data", express.static(path.join(__dirname, "EEG_Data_new")));
+// Recordings and plots are stored encrypted; they are decrypted only when downloaded here.
+app.get("/eeg_data/:file", (req, res) => {
+  const name = path.basename(req.params.file);
+  const enc = path.join(EEG_DIR, name + ".enc");
+  if (!fs.existsSync(enc)) return res.status(404).json({ error: "Not found" });
+  const isPng = /\.png$/i.test(name);
+  res.type(isPng ? "image/png" : "application/octet-stream");
+  if (!isPng) res.attachment(name);
+  res.send(secure.decryptFile(enc));
+});
 app.use(express.static(clientDist));
 
 // Single-page app: every other GET serves index.html and the client router takes over.

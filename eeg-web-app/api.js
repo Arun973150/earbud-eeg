@@ -13,6 +13,7 @@ const { computeVerdict } = require("./brainhealth/verdict");
 const { riskSummary, ageOf } = require("./brainhealth/risk");
 const { computeValidation, localReliability } = require("./brainhealth/validation");
 const { METRICS } = require("./brainhealth/metrics");
+const secure = require("./brainhealth/secure");
 
 const router = express.Router();
 const EEG_DIR = path.join(__dirname, "EEG_Data_new");
@@ -375,6 +376,7 @@ router.post("/sessions/:id/eeg", (req, res) => {
   const job = jobs.startJob({
     type: "eeg", script: "brain_check.py", args, usesSerial: !simulated, timeoutMs: (closed + open + 180) * 1000,
     onDone: (j) => {
+      if (j.result?.edf_file) secure.encryptFile(path.join(EEG_DIR, j.result.edf_file)); // encrypted at rest
       s.eeg = { jobId: j.id, mode: simulated ? "simulated" : "earbud", status: j.status, result: j.result, error: j.error, at: nowIso() };
       store.logEvent("eeg_recorded", { sessionId: s.id, status: j.status, code: j.error?.code });
       store.save();
@@ -619,6 +621,8 @@ router.post("/screen", upload.single("edfFile"), (req, res) => {
   const job = jobs.startJob({
     type: "screen", script: "predict_seizure.py", args: [req.file.path, EEG_DIR], timeoutMs: 5 * 60 * 1000,
     onDone: (j) => {
+      fs.rmSync(req.file.path, { force: true }); // uploaded recordings are not kept
+      if (j.result?.visualization) secure.encryptFile(j.result.visualization);
       if (j.result) {
         j.result.file = original;
         j.result.visualizationUrl = j.result.visualization ? `/eeg_data/${path.basename(j.result.visualization)}` : null;
@@ -629,6 +633,8 @@ router.post("/screen", upload.single("edfFile"), (req, res) => {
   });
   res.status(202).json({ job });
 });
+
+router.use(require("./continuous").router);
 
 router.use((req, res) => res.status(404).json({ error: "Not found" }));
 

@@ -1,6 +1,7 @@
 import ParticleBrain from '../components/ParticleBrain.jsx'
 import { AppShell, SimTag, Loading, ErrorBox } from '../components/ui.jsx'
 import { ResultTiles, VerdictDots, VERDICT } from '../components/BrainResult.jsx'
+import { ContinuousHome } from '../components/Continuous.jsx'
 import { Link } from '../router.jsx'
 import { useApi } from '../api.js'
 import { fmtDate } from '../copy.js'
@@ -52,6 +53,8 @@ export default function ParticipantHome({ pid }) {
           <ResultTiles result={latest.eeg} />
         </div>
       )}
+
+      {data.consentValid && <ContinuousHome pid={pid} consent={p.consent?.categories} />}
 
       {done.length > 0 && (
         <section className="panel" style={{ marginBottom: 'var(--sp-24)' }}>

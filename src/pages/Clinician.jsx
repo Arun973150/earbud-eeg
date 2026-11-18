@@ -3,6 +3,7 @@ import { AppShell, PageHead, Loading, ErrorBox, StatusChip, SimTag, Field, Notic
 import { Link } from '../router.jsx'
 import { api, useApi } from '../api.js'
 import { reasonText, fmtDate, SERVICE } from '../copy.js'
+import { AlertsQueue } from '../components/Continuous.jsx'
 
 function SignIn({ onSignedIn }) {
   const [pin, setPin] = useState('')
@@ -55,6 +56,7 @@ function Queue({ onSignOut }) {
   if (error) return <ErrorBox error={error} />
   return (
     <div className="stack stack--lg">
+      <AlertsQueue />
       <section className="panel">
         <div className="row row--between">
           <div>
@@ -63,7 +65,7 @@ function Queue({ onSignOut }) {
           </div>
           <button className="pill pill--quiet" onClick={onSignOut}>Sign out</button>
         </div>
-        <p className="panel__text" style={{ marginBottom: 'var(--sp-12)' }}>Urgent first, then longest waiting. Participants see flagged results only after your review.</p>
+        <p className="panel__text" style={{ marginBottom: 'var(--sp-12)' }}>Urgent first, then longest waiting. People see their result straight away; your decision is added to their report.</p>
         <div className="list">
           {data.pending.length === 0 && <p className="panel__text muted">Nothing waiting.</p>}
           {data.pending.map((item) => <QueueRow key={item.sessionId} item={item} />)}
@@ -112,7 +114,7 @@ export default function Clinician() {
       <PageHead
         kicker="Human oversight"
         title="Clinician review"
-        lead="Abnormal, rapidly changing and high-risk results wait here for a qualified decision before the participant sees them as a referral."
+        lead="Abnormal, rapidly changing and high-risk results, and background-screening alerts, wait here for a qualified decision. See the escalation pathway for response times."
       />
       {status.loading ? <Loading /> : status.error ? <ErrorBox error={status.error} /> : status.data.clinician ? <Queue onSignOut={signOut} /> : (
         <div className="grid-aside">

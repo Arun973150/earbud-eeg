@@ -15,6 +15,7 @@ export function AppShell({ children }) {
         <span>For staff &amp; judges:</span>
         <Link to="/clinician">Clinician console</Link>
         <Link to="/validation">Validation</Link>
+        <Link to="/escalation">Escalation pathway</Link>
       </footer>
     </>
   )

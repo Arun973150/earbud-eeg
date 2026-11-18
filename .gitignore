@@ -17,6 +17,7 @@ eeg-web-app/data/
 eeg-web-app/uploads/*
 !eeg-web-app/uploads/.gitkeep
 eeg-web-app/EEG_Data_new/*.edf
+eeg-web-app/EEG_Data_new/*.enc
 eeg-web-app/EEG_Data_new/*.png
 eeg-web-app/EEG_Data_new/*.txt
 
