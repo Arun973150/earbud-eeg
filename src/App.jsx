@@ -8,6 +8,8 @@ import Profile from './pages/Profile.jsx'
 import Check from './pages/Check.jsx'
 import Report from './pages/Report.jsx'
 import Focus from './pages/Focus.jsx'
+import Monitor from './pages/Monitor.jsx'
+import Escalation from './pages/Escalation.jsx'
 import Trends from './pages/Trends.jsx'
 import Screen from './pages/Screen.jsx'
 import Clinician from './pages/Clinician.jsx'
@@ -24,6 +26,8 @@ const ROUTES = [
   ['/app/p/:pid/profile', Profile],
   ['/app/p/:pid/check', Check],
   ['/app/p/:pid/trends', Trends],
+  ['/app/p/:pid/monitor', Monitor],
+  ['/escalation', Escalation],
   ['/app/s/:sid', Report],
   ['/app/s/:sid/focus', Focus],
   ['/clinician', Clinician],

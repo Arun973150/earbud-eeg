@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AppShell, PageHead, Loading, ErrorBox, Field, Choices, Notice, StatusChip } from '../components/ui.jsx'
 import { Link } from '../router.jsx'
+import { HabitImport } from '../components/Continuous.jsx'
 import { api, useApi } from '../api.js'
 import { FACTOR } from '../copy.js'
 
@@ -104,6 +105,8 @@ export default function Profile({ pid }) {
           Storing health information needs your consent. <Link to={`/app/p/${pid}/consent`} style={{ textDecoration: 'underline' }}>Review consent</Link>.
         </Notice>
       ) : (
+        <>
+        <HabitImport pid={pid} />
         <div className="grid-aside">
           <form className="panel" onSubmit={save}>
             <div className="form-section">
@@ -193,6 +196,7 @@ export default function Profile({ pid }) {
           </form>
           <RiskPanel summary={summary} />
         </div>
+        </>
       )}
     </AppShell>
   )

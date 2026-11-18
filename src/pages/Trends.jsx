@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AppShell, PageHead, Loading, ErrorBox, SimTag, Notice } from '../components/ui.jsx'
 import { TrendChart, TrendKey, TrendTable } from '../components/Charts.jsx'
 import { useApi } from '../api.js'
+import { DailySection } from '../components/Continuous.jsx'
 import { DOMAIN, METRIC } from '../copy.js'
 
 function MetricTrend({ id, series }) {
@@ -33,6 +34,7 @@ function MetricTrend({ id, series }) {
 
 export default function Trends({ pid }) {
   const { data, error, loading } = useApi(`/api/participants/${pid}/trends`)
+  const daily = useApi(`/api/participants/${pid}/daily`)
   if (loading) return <AppShell><Loading /></AppShell>
   if (error) return <AppShell><ErrorBox error={error} /></AppShell>
   const p = data.participant
@@ -46,6 +48,8 @@ export default function Trends({ pid }) {
         title="You compared with you"
         lead="Each line is one measure across your checks. The shaded band is your usual range, learned from your first three checks. Points outside it are what we watch."
       />
+      <DailySection data={daily.data} />
+      <p className="kicker">Guided checks</p>
       <div style={{ marginBottom: 'var(--sp-24)' }}><TrendKey /></div>
       {domains.length === 0 && <Notice title="Nothing yet.">Complete a check to start your trends.</Notice>}
       <div className="stack stack--lg">

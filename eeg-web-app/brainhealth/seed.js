@@ -159,10 +159,60 @@ function schedule(now, followUps, lastDaysAgo = randint(3, 60)) {
   return offsets.map((d) => ({ day: d, at: start + d * DAY + randint(9, 17) * 60 * 60 * 1000 }));
 }
 
+// Six weeks of background screening and daily habits for part of the SIMULATED cohort,
+// with three scripted stories: a sleep-explained dip (SIM-004), an unexplained slowing
+// (SIM-008) and a seizure-like event (SIM-001).
+function seedContinuous(db, people, now) {
+  const { evaluateDaily } = require("./daily");
+  const { syncAlerts } = require("./escalation");
+  const DAYS = 42;
+  const today = new Date(now);
+  today.setUTCHours(0, 0, 0, 0);
+  const subset = people.slice(0, 14);
+  for (const { p } of subset) {
+    const story = p.code === "SIM-004" ? "sleep" : p.code === "SIM-008" ? "decline" : p.code === "SIM-001" ? "seizure" : "stable";
+    const paf0 = round(uniform(8.9, 10.8), 2), ta0 = round(uniform(0.5, 0.9), 2), al0 = round(uniform(0.22, 0.36), 3);
+    const sleep0 = clamp(p.risk.sleepHours || 7, 5.8, 8.5), active0 = clamp((p.risk.activityMinutes || 90) / 4, 10, 80);
+    for (let d = DAYS - 1; d >= 0; d--) {
+      const date = new Date(today.getTime() - d * DAY);
+      const iso = date.toISOString().slice(0, 10);
+      const recent = d < 7;
+      let sleep = clamp(sleep0 + normal() * 0.8, 3.5, 10);
+      if (story === "sleep" && recent) sleep = clamp(4.4 + normal() * 0.3, 3.5, 5.2);
+      const active = clamp(active0 + normal() * 15, 0, 180);
+      if (chance(0.9)) {
+        db.habits.push({ participantId: p.id, date: iso, sleepHours: round(sleep, 1), sleepQuality: clamp(Math.round(2 + sleep / 3 + normal() * 0.6), 1, 5),
+          activeMinutes: Math.round(active), stress: clamp(Math.round(2 + normal() * 0.8), 1, 5), source: "simulated", createdAt: date.toISOString() });
+      }
+      if (!chance(0.85) && !(recent && story !== "stable")) continue;
+      const minutes = randint(35, 150);
+      const cleanMinutes = Math.round(minutes * uniform(0.45, 0.8));
+      let paf = paf0 + 0.13 * (sleep - sleep0) + 0.003 * (active - active0) + normal() * 0.07;
+      if (story === "decline" && d < 9) paf -= 0.65;
+      const events = story === "seizure" && d === 1 ? [{ start_s: 1830, end_s: 1872, peak: 0.96, windows: 20 }] : [];
+      const start = new Date(date.getTime() + randint(9, 20) * 3600 * 1000);
+      db.monitoring.push({
+        id: store.newId("m"), participantId: p.id, simulated: true, source: "simulated",
+        startedAt: start.toISOString(), endedAt: new Date(start.getTime() + minutes * 60000).toISOString(),
+        minutes, cleanMinutes,
+        markers: { paf_hz: round(paf, 2), theta_alpha_ratio: round(ta0 + normal() * 0.04 + (story === "decline" && d < 9 ? 0.12 : 0), 3), alpha_share: round(al0 + normal() * 0.015, 4) },
+        seizure: { decision: events.length ? "SEIZURE" : "NO SEIZURE", events, isolated_spikes: randint(0, 2), window_probabilities: [], window_step_s: 2, probability_max: events.length ? 0.96 : round(uniform(0.05, 0.6), 2) },
+        edf_file: null,
+      });
+    }
+    const ev = evaluateDaily({ monitoring: db.monitoring.filter((m) => m.participantId === p.id), habits: db.habits.filter((h) => h.participantId === p.id), now: new Date(now) });
+    syncAlerts(db, p.id, ev.alerts, new Date(now - randint(1, 10) * 3600 * 1000), store.newId);
+  }
+}
+
 function seed({ now = Date.now() } = {}) {
   const db = store.load();
   db.participants = db.participants.filter((p) => !p.simulated);
   db.sessions = db.sessions.filter((s) => !s.simulated);
+  const simId = (id) => String(id).startsWith("p_sim");
+  db.monitoring = (db.monitoring || []).filter((m) => !m.simulated && !simId(m.participantId));
+  db.habits = (db.habits || []).filter((h) => !simId(h.participantId));
+  db.alerts = (db.alerts || []).filter((a) => !simId(a.participantId));
 
   const decliners = new Set();
   while (decliners.size < Math.round(COHORT * 0.15)) decliners.add(randint(0, COHORT - 1));
@@ -289,6 +339,7 @@ function seed({ now = Date.now() } = {}) {
     db.sessions.push(...sessions);
   }
 
+  seedContinuous(db, people, now);
   store.flush();
   return { participants: people.length, sessions: people.reduce((n, x) => n + x.sessions.length, 0) };
 }

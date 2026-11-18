@@ -38,7 +38,7 @@ function prune() {
 function handleLine(job, line) {
   const space = line.indexOf(" ");
   const kind = space > 0 ? line.slice(0, space) : "";
-  if (!["PROGRESS", "QUALITY", "RESULT_JSON", "ERROR_JSON"].includes(kind)) return;
+  if (!["PROGRESS", "QUALITY", "SEGMENT", "RESULT_JSON", "ERROR_JSON"].includes(kind)) return;
   let payload;
   try {
     payload = JSON.parse(line.slice(space + 1));
@@ -47,6 +47,10 @@ function handleLine(job, line) {
   }
   if (kind === "PROGRESS") job.progress = payload;
   else if (kind === "QUALITY") job.quality = payload;
+  else if (kind === "SEGMENT") {
+    job.segments.push(payload);
+    if (job.segments.length > 300) job.segments.shift();
+  }
   else if (kind === "RESULT_JSON") job.result = payload;
   else job.error = payload;
 }
@@ -58,7 +62,7 @@ function startJob({ type, script, args = [], usesSerial = false, timeoutMs = 10 
   }
   const job = {
     id: crypto.randomUUID(), type, status: "running", startedAt: Date.now(),
-    progress: null, quality: null, result: null, error: null, stderr: [], markers: [],
+    progress: null, quality: null, result: null, error: null, stderr: [], markers: [], segments: [],
   };
   const child = spawn(pythonBin(), ["-u", path.join(PY_DIR, script), ...args], {
     cwd: ROOT,

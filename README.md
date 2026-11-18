@@ -46,15 +46,39 @@ Slowing is described as "linked to memory decline", never as a diagnosis.
 
 ---
 
+## Continuous screening, habits and explainable alerts
+
+**Background screening.** Wear the earbud while you study or listen, for 30 minutes to a few hours.
+- The app analyses each minute and keeps only the still, clean ones; minutes with walking, chewing or talking are rejected.
+- The CNN-GRU seizure screen runs over the whole session.
+- Each session is saved as an encrypted EDF plus a daily summary.
+
+**Daily habits.** A 20-second check-in (sleep hours and quality, active minutes, stress), or a CSV export from a phone or watch with flexible columns. Steps are converted to active minutes.
+
+**Explainable alerts** (`brainhealth/daily.js`):
+- Each day's markers are compared with the person's own two-week baseline.
+- A small per-person model learns how much that person's sleep and activity move each marker, so every alert can say why. For example: *"Brain rhythm speed 0.6 Hz below your usual on 4 of the last 5 days. Shorter sleep (4.4 h vs your usual 8.5 h) explains about 0.6 Hz of this."*
+- Changes that habits explain become a **Repeat**. Unexplained sustained changes go to **Clinician review** within 7 days. Sustained seizure-like events are **Urgent**, reviewed within 24 hours.
+- The full pathway is in [docs/clinical-escalation.md](docs/clinical-escalation.md) and in the app at `/escalation`.
+
+**Encrypted at rest** (`brainhealth/secure.js`):
+- The local store and every EEG recording are encrypted with AES-256-GCM.
+- The key is wrapped with Windows DPAPI, so it is tied to the Windows user account; other systems use `EEG_PASSPHRASE` with scrypt.
+- Recordings are decrypted only when downloaded.
+
+**Hardware v2 for all-day wear:** soft silicone tips, conductive-silicone electrodes, wireless and battery. See [docs/hardware-v2.md](docs/hardware-v2.md).
+
+The CNN-GRU still does the seizure screening. Sleep and activity are cross-referenced by a transparent per-person model, so every alert is explainable. A learned multimodal model needs labelled continuous data first, which the pilot will collect.
+
 ## How each challenge criterion is met
 
 | Criterion | What Earbud·EEG does | Where to see it |
 |---|---|---|
 | **1. Culturally valid, accessible assessment** | Wordless tasks (lights, shapes, tones, resting EEG), each with a practice round. Read-aloud instructions, large-text and high-contrast modes, large buttons and full keyboard control, larger stimuli for low vision. A helper can sit in, and an informant can answer the daily-life questions. Language, education, age and digital familiarity are recorded so performance can be compared across groups. | `/app` → a check |
-| **2. Longitudinal change detection** | Personal baseline = first 3 valid, unconfounded checks. A Reliable Change Index for each measure. Clear thresholds: repeat in 14 days for a one-off decline; clinician review when a decline is confirmed on the next check or appears in 2 domains at once; urgent review for rapid change since the last check. Fasting, illness and short sleep turn a borderline flag into a repeat. | Report, Trends |
-| **3. Integrated risk context** | A health profile (body, metabolic, sleep, mood, lifestyle, head injury, senses, family history, optional APOE with its own consent), mapped to the 14 modifiable risk factors of the Lancet Commission 2024, plus the CAIDE midlife dementia risk score. | Health profile |
+| **2. Longitudinal change detection** | Personal baseline = first 3 valid, unconfounded checks. A Reliable Change Index for each measure. Clear thresholds: repeat in 14 days for a one-off decline; clinician review when a decline is confirmed on the next check or appears in 2 domains at once; urgent review for rapid change since the last check. Fasting, illness and short sleep turn a borderline flag into a repeat. **Background screening** adds daily markers against a two-week personal baseline, with sustained-change rules. | Report, Trends, Background screening |
+| **3. Integrated risk context** | A health profile (body, metabolic, sleep, mood, lifestyle, head injury, senses, family history, optional APOE with its own consent), mapped to the 14 modifiable risk factors of the Lancet Commission 2024, plus the CAIDE midlife dementia risk score. **Daily sleep and activity** (check-in or CSV import) are cross-referenced with EEG, so each alert says how much habits explain. | Health profile, Today card |
 | **4. Personalised prevention and timely care** | Plain-language report: what changed, what it does and doesn't mean, evidence-linked actions for each risk factor, when to retest, and who to see (primary care, neurology, geriatrics, mental health, audiology, sleep clinic). An optional AI explainer limited to the results of that check. | Report |
-| **5. Safety and human oversight** | A "risk check, not a diagnosis" message on every report. Personal ranges shown as uncertainty bands. EEG quality gating, and accuracy limits disclosed. People see their result straight away; every Abnormal or review result is also **queued automatically for a clinician's second look** in the staff console (footer link). Clinician decisions appear on the report as a doctor's note. Audit log. | `/clinician` |
+| **5. Safety and human oversight** | A "risk check, not a diagnosis" message on every report. Personal ranges shown as uncertainty bands. EEG quality gating, and accuracy limits disclosed. People see their result straight away; every Abnormal or review result is also **queued automatically for a clinician's second look** in the staff console (footer link). Clinician decisions appear on the report as a doctor's note. **Documented escalation pathway** with tiers and response times (urgent 24 h, review 7 days), overdue tracking and a logged action history. Data **encrypted at rest** (AES-256-GCM, DPAPI-protected key). Audit log. | `/clinician`, `/escalation` |
 | **6. Validation and local performance** | A live dashboard: completion, test–retest ICC, sensitivity, specificity, PPV, time from onset to flag, false-referral burden and days to clinical review, each broken down by first language, age and education. A random 20% verification sample measures specificity honestly. Includes a proposed local validation study. | `/validation` |
 
 ---
@@ -73,7 +97,8 @@ python -m venv .venv
 npm install
 npm run seed      # 60 SIMULATED participants with up to two years of checks
 npm run reanalyze # (server stopped) add the latest report visuals to older real recordings
-npm test
+npm test                                   # 40 tests
+.venv\Scripts\python python/test_monitor.py   # background-screening mode (about 1 min)
 
 # 3. Build the web app and start the server
 cd ..

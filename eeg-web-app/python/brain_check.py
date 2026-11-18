@@ -50,7 +50,7 @@ class SimulatedSource:
     at a per-person frequency that is stronger with eyes closed, some theta, 50 Hz hum
     and blink artifacts with eyes open. Clearly tagged as simulated downstream."""
 
-    def __init__(self, seed_text, closed_s, total_s, task_after_s=None):
+    def __init__(self, seed_text, closed_s, total_s, task_after_s=None, monitor=False):
         # "person|session": the person part fixes their own rhythm, the session part adds
         # the small day-to-day variation real repeat recordings have.
         trait = np.random.default_rng(zlib.crc32(seed_text.split("|")[0].encode("utf-8")))
@@ -70,12 +70,14 @@ class SimulatedSource:
         alpha_phase = 2 * np.pi * np.cumsum(self.paf + drift) / SR
         envelope = 1 + 0.3 * np.sin(2 * np.pi * 0.2 * t + rng.random() * 6)
         eyes_closed = t < closed_s
-        if task_after_s is None:
+        if monitor:  # relaxed listening, eyes mostly open
+            alpha_amp = np.full(n, 7.0)
+        elif task_after_s is None:
             alpha_amp = np.where(eyes_closed, 9.0, 4.5)
         else:  # relaxed eyes-open rest, then concentrating: alpha drops, theta rises
             alpha_amp = np.where(t < task_after_s, 6.0, 3.6)
         alpha = alpha_amp * envelope * np.sin(alpha_phase)
-        theta_amp = 6.0 if task_after_s is None else np.where(t < task_after_s, 5.0, 7.0)
+        theta_amp = 4.5 if monitor else 6.0 if task_after_s is None else np.where(t < task_after_s, 5.0, 7.0)
         theta = theta_amp * np.sin(2 * np.pi * (5.5 + rng.random()) * t + rng.random() * 6)
         hum = 12.0 * np.sin(2 * np.pi * ep.MAINS_HZ * t)
 
@@ -85,6 +87,15 @@ class SimulatedSource:
             blinks += 60.0 * np.exp(-0.5 * ((t - centre) / 0.08) ** 2)
 
         uv = pink + alpha + theta + hum + blinks
+        if monitor:  # everyday wear: some minutes carry walking, chewing or talking artifacts
+            sos = signal.butter(4, [20, 45], btype="band", fs=SR, output="sos")
+            for m in range(int(total_s // 60) + 1):
+                if zlib.crc32(f"{seed_text}:{m}".encode()) % 4 == 0:
+                    seg = slice(int((m * 60 + 8) * SR), min(int((m * 60 + 52) * SR), n))
+                    if seg.stop > seg.start:
+                        burst = signal.sosfilt(sos, rng.standard_normal(seg.stop - seg.start))
+                        uv[seg] += 30.0 * burst / max(1e-9, float(np.std(burst)))
+                        uv[seg] += 80.0 * np.sin(2 * np.pi * 1.3 * t[seg])
         self.adc = np.clip(512 + uv / (500 / 1023), 0, 1023)
         self.cursor = 0
 
@@ -485,6 +496,142 @@ def run_task(args):
     emit("RESULT_JSON", {"mode": "task", "source": "simulated" if args.simulate else "earbud", **result})
 
 
+# --------------------------------------------------------------------------- background screening
+
+MONITOR_MIN_CLEAN_EPOCHS = 10  # >= 20 s of clean 2-s epochs makes a minute usable
+
+
+def minute_markers(raw_chunk, chunk_s, ref_ptp):
+    """Clean epochs from one minute of raw ADC samples -> markers (or None if too noisy)."""
+    data, _ = ep.resample_to_nominal(np.asarray(raw_chunk, dtype=float), chunk_s)
+    filtered = ep.preprocess_eeg_data(data)
+    epochs = epochs_of(filtered)
+    if not len(epochs):
+        return None, 0.0, filtered, ref_ptp
+    ptp = np.ptp(epochs, axis=1)
+    ref = ref_ptp if ref_ptp else float(np.median(ptp))
+    freqs, psd_each = signal.welch(epochs, fs=SR, nperseg=epochs.shape[1], nfft=epochs.shape[1] * 2, axis=1)
+    hi = psd_each[:, (freqs >= 20) & (freqs < 45)].sum(axis=1)
+    tot = psd_each[:, (freqs >= 1) & (freqs < 45)].sum(axis=1)
+    muscle = hi / np.maximum(tot, 1e-12)
+    keep = (ptp <= 3 * ref) & (epochs.std(axis=1) > 0.5) & (muscle < 0.35)
+    kept = epochs[keep]
+    kept_pct = float(keep.mean())
+    if len(kept) < MONITOR_MIN_CLEAN_EPOCHS:
+        return None, kept_pct, filtered, ref
+    f, p = spectrum(kept)
+    rel = relative_bands(f, p)
+    alpha = band_power(f, p, *BANDS["alpha"])
+    theta = band_power(f, p, *BANDS["theta"])
+    markers = {
+        "paf_hz": round(peak_alpha_frequency(f, p), 2),
+        "theta_alpha_ratio": round(theta / alpha, 3) if alpha > 0 else None,
+        "alpha_share": rel["alpha"],
+    }
+    return markers, kept_pct, filtered, ref
+
+
+def run_monitor(args):
+    """Background screening: record while the earbud is worn, analyse each minute, stop on STOP."""
+    state = {"stop": False, "markers": []}
+    stdin_listener(state)
+    should_stop = lambda: state["stop"]
+    started = datetime.now()
+    total = float(args.max)
+    timeline = []
+    ctx = {"next": 60.0, "ref": None, "predictor": None}
+
+    def predictor():
+        if ctx["predictor"] is None:
+            from predict_seizure import SeizurePredictor
+            ctx["predictor"] = SeizurePredictor()
+        return ctx["predictor"]
+
+    def on_minute(samples, elapsed):
+        idx = len(timeline)
+        per_s = len(samples) / max(elapsed, 1e-6)
+        chunk = samples[int(idx * 60 * per_s):int((idx + 1) * 60 * per_s)]
+        if len(chunk) < per_s * 30:
+            return False
+        markers, kept_pct, filtered, ctx["ref"] = minute_markers(chunk, len(chunk) / per_s, ctx["ref"])
+        seizure_max = None
+        if markers and args.live_screen:  # live preview on usable minutes; the full-session screen is final
+            tmp = ep.save_to_edf(filtered, patient_id=args.session, recording_info={"start_datetime": started, "duration": 60},
+                                 file_name=f"_live_{args.session}.edf", output_dir=args.out)
+            try:
+                seizure_max = round(float(predictor().predict(tmp)["probability_max"]), 3)
+            except Exception:
+                seizure_max = None
+            finally:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        seg = {"minute": idx + 1, "start_s": idx * 60, "clean": bool(markers), "kept_pct": round(100 * kept_pct, 1),
+               "markers": markers, "seizure_max": seizure_max}
+        timeline.append(seg)
+        emit("SEGMENT", seg)
+        return True
+
+    base = progress_reporter(lambda e: ("monitor", total))
+
+    def reporter(elapsed, samples):
+        base(elapsed, samples)
+        while elapsed >= ctx["next"]:
+            on_minute(samples, elapsed)
+            ctx["next"] += 60.0
+
+    if args.simulate:
+        source = SimulatedSource(args.seed or "monitor", 0, total, monitor=True)
+        raw, duration = acquire_simulated(source, total, args.fast, reporter, should_stop)
+    else:
+        t0 = {}
+        raw, duration = acquire_earbud(total, reporter, should_stop, t0)
+        duration = time.time() - t0["t0"]
+    if len(raw) < SR * 30:
+        fail("NO_DATA", "Less than 30 seconds of signal arrived; check the earbud and wiring.", 3)
+    # The last (possibly partial) minute ends as recording stops: analyse what is left.
+    while len(timeline) * 60 < duration - 30 and on_minute(raw, duration):
+        pass
+
+    emit("PROGRESS", {"phase": "processing", "elapsed": duration, "total": duration})
+    data, measured_fs = ep.resample_to_nominal(raw, duration)
+    filtered = ep.preprocess_eeg_data(data)
+    edf_name = f"monitor_{args.session}_{started.strftime('%Y%m%d_%H%M%S')}.edf"
+    edf_path = ep.save_to_edf(filtered, patient_id=args.session,
+                              recording_info={"start_datetime": started, "duration": int(duration)},
+                              file_name=edf_name, output_dir=args.out)
+    seizure = None
+    clean = [s for s in timeline if s["clean"]]
+    if clean and not args.no_screen:
+        emit("PROGRESS", {"phase": "screening", "elapsed": duration, "total": duration})
+        seizure = predictor().predict(edf_path)
+        probs = seizure.get("window_probabilities") or []
+        if len(probs) > 600:  # keep storage small: max per bucket
+            k = int(np.ceil(len(probs) / 600))
+            seizure["window_probabilities"] = [round(max(probs[i:i + k]), 4) for i in range(0, len(probs), k)]
+            seizure["window_step_s"] = seizure.get("window_step_s", 2) * k
+        seizure.pop("visualization", None)
+
+    def med(key):
+        vals = [s["markers"][key] for s in clean if s["markers"].get(key) is not None]
+        return round(float(np.median(vals)), 3) if vals else None
+
+    emit("RESULT_JSON", {
+        "mode": "monitor",
+        "source": "simulated" if args.simulate else "earbud",
+        "started_at": started.isoformat(timespec="seconds"),
+        "duration_s": round(duration, 1),
+        "fs_measured": round(measured_fs, 1),
+        "minutes": len(timeline),
+        "clean_minutes": len(clean),
+        "timeline": timeline,
+        "markers": {k: med(k) for k in ("paf_hz", "theta_alpha_ratio", "alpha_share")},
+        "seizure_screen": seizure,
+        "edf_file": os.path.basename(edf_path),
+    })
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -493,6 +640,7 @@ def main():
     mode.add_argument("--record", action="store_true")
     mode.add_argument("--reanalyze", metavar="EDF")
     mode.add_argument("--task", action="store_true")
+    mode.add_argument("--monitor", action="store_true")
     parser.add_argument("--max", type=float, default=60)
     parser.add_argument("--rest", type=float, default=20)
     parser.add_argument("--closed", type=float, default=60)
@@ -503,6 +651,8 @@ def main():
     parser.add_argument("--seed", default="")
     parser.add_argument("--fast", action="store_true")
     parser.add_argument("--screen-seizures", action="store_true")
+    parser.add_argument("--live-screen", action="store_true")
+    parser.add_argument("--no-screen", action="store_true")
     args = parser.parse_args()
 
     if args.list_ports:
@@ -512,6 +662,8 @@ def main():
         run_contact(args)
     elif args.task:
         run_task(args)
+    elif args.monitor:
+        run_monitor(args)
     elif args.reanalyze:
         run_reanalyze(args)
     else:

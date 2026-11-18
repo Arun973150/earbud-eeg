@@ -3,6 +3,8 @@
 //   npm run reanalyze
 const path = require("node:path");
 const fs = require("node:fs");
+const os = require("node:os");
+const secure = require("./secure");
 const { execFileSync } = require("node:child_process");
 const store = require("./store");
 const { pythonBin } = require("../jobs");
@@ -15,7 +17,14 @@ for (const s of db.sessions) {
   const r = s.eeg?.result;
   const upToDate = r?.spectrogram && r.seizure_screen?.events && r.spectra?.freqs?.at(-1) > 40;
   if (s.simulated || !r?.edf_file || upToDate) continue;
-  const edf = path.join(ROOT, "EEG_Data_new", r.edf_file);
+  let edf = path.join(ROOT, "EEG_Data_new", r.edf_file);
+  let tmp = null;
+  if (!fs.existsSync(edf) && fs.existsSync(edf + ".enc")) {
+    // Recordings are encrypted at rest: decrypt to a temporary file just for this run.
+    tmp = path.join(os.tmpdir(), `reanalyze_${process.pid}_${path.basename(edf)}`);
+    fs.writeFileSync(tmp, secure.decryptFile(edf + ".enc"));
+    edf = tmp;
+  }
   if (!fs.existsSync(edf)) continue;
   const closed = r.protocol?.eyes_closed_s ?? 60;
   const open = r.protocol?.eyes_open_s ?? 60;
@@ -23,6 +32,7 @@ for (const s of db.sessions) {
     "--closed", String(closed), "--open", String(open), "--screen-seizures"], {
     cwd: ROOT, env: { ...process.env, TF_CPP_MIN_LOG_LEVEL: "2" }, stdio: ["ignore", "pipe", "ignore"],
   }).toString();
+  if (tmp) fs.rmSync(tmp, { force: true });
   const line = out.split(/\r?\n/).find((l) => l.startsWith("RESULT_JSON "));
   if (!line) continue;
   const fresh = JSON.parse(line.slice("RESULT_JSON ".length));
